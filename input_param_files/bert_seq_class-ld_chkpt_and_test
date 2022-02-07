@@ -1,0 +1,47 @@
+Vineet Kumar, sioom.ai
+
+This input file has user-settable hyper-parameters for training and testing
+   a model.
+
+Note the following:
+	(1) This file name should be last in the command-line.
+	(2) Do NOT change the order of python-dictionaries in this file.
+	(3) The default directory is "classification"
+	(4) All the dictionaries MUST be present even if they are empty
+	(5) Unless specified, if a dictionary is empty, its contents will be replaced by the 
+	    corresponding dictionary from the checkpoint file that is loaded
+
+Command-line:
+-------------
+python3 Main.py input_param_files/bert_seq_class-ld_chkpt_and_test 
+
+
+parameters for python-dictionary 'misc'
+-
+{'no_training': True, 'no_testing': False, 'statistics': True}
+
+
+parameters for python-dictionary 'optz_sched'
+- 
+{}
+
+
+parameters for python-dictionary 'data'
+- 
+{'default_format_path': 'data/customer_chat_sample.csv', 'batch_size': {'train': None, 'val': None, 'test': 10}, 'dataset_split': {'train': 80, 'val': 10, 'test': 10}} 
+
+
+parameters for python-dictionary 'trainer'
+- 
+{'gpus': 1}
+
+
+parameters for python-dictionary 'model_init'. Contents of this dict are replaced by corresponding checkpoint dict 
+- 
+{}
+#{'model_type': 'bert_large_uncased', 'tokenizer_type': 'bert'}
+
+
+parameters for python-dictionary 'ld_resume_chkpt'
+- 
+{'ld_chkpt': 'tensorboard_logs/model_type=bert_large_uncased,tokenizer_type=bert/version_0/checkpoints/last.ckpt'}

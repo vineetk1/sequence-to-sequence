@@ -46,7 +46,7 @@ Continue training a checkpoint model with the same model-state but different hyp
 ```
 python3 Main.py input_param_files/bert_seq_tag-ld_chkpt
 ```
-The user-settable hyper-parameters are in the file *input_param_filesbert_seq_tag-ld_chkpt*.  An explanation on the contents of this file is at *input_param_files/README.md*.   
+The user-settable hyper-parameters are in the file *input_param_files/bert_seq_tag-ld_chkpt*.  An explanation on the contents of this file is at *input_param_files/README.md*.   
 ## Further test a checkpoint model with a new dataset
 Test a checkpoint model by using the following command:
 ```

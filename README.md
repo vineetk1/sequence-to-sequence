@@ -1,4 +1,4 @@
-# Classification using Deep Learning
+# Sequence-tagging using Deep Learning
 ## Requirements
 * PyTorch version >= 1.10.2+cu113
 * Python version >= 3.8.10

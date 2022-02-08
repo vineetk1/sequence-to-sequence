@@ -1,9 +1,9 @@
 # Classification using Deep Learning
 ## Requirements
-* PyTorch version >= 1.9.1+cu111
+* PyTorch version >= 1.10.2+cu113
 * Python version >= 3.8.10
-* PyTorch-Lightning version >= 1.4.9
-* Huggingface Transformers version >= 4.11.3
+* PyTorch-Lightning version >= 1.5.9
+* Huggingface Transformers version >= 4.16.2
 * Tensorboard version >= 2.6.0
 * Pandas >= 1.3.4
 * Scikit-learn: numpy>=1.14.6, scipy>=1.1.0, threadpoolctl>=2.0.0, joblib>=0.11

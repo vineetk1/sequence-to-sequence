@@ -6,12 +6,12 @@ This input file has user-settable hyper-parameters for training and testing
 Note the following:
 	(1) This file name should be last in the command-line.
 	(2) Do NOT change the order of python-dictionaries in this file.
-	(3) The default directory is "classification"
+	(3) The default directory is "sequence-tagging"
 	(4) All the dictionaries MUST be present even if they are empty
  
 Command-line:
 -------------
-python3 Main.py input_param_files/bert_seq_class 
+python3 Main.py input_param_files/bert_seq_tag 
 
 
 parameters for python-dictionary 'misc'

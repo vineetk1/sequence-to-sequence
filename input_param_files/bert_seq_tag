@@ -21,17 +21,17 @@ parameters for python-dictionary 'misc'
 
 parameters for python-dictionary 'optz_sched'
 - 
-{'optz': 'Adam', 'optz_params': {'lr': 2e-5}, 'lr_sched': 'ReduceLROnPlateau', 'lr_sched_params': {'mode': 'min', 'patience': 1, 'factor': 1e-1}} 
+{'optz': 'Adam', 'optz_params': {'lr': 2e-5}, 'lr_sched': 'ReduceLROnPlateau', 'lr_sched_params': {'mode': 'min', 'patience': 0, 'factor': 5e-1}} 
 
 
 parameters for python-dictionary 'data'
 - 
-{'default_format_path': 'data/customer_chat_sample.csv', 'batch_size': {'train': 10, 'val': 10, 'test': 10}, 'dataset_split': {'train': 80, 'val': 10, 'test': 10}} 
+{'default_format_path': 'data/kaggle/ner_datasetreference.csv', 'batch_size': {'train': 2, 'val': 16, 'test': 32}, 'dataset_split': {'train': 80, 'val': 10, 'test': 10}} 
 
 
 parameters for python-dictionary 'trainer'
 - 
-{'gpus': 1, 'max_epochs': 10}
+{'gpus': 1, 'max_epochs': 15}
 #{'gpus': 1, 'auto_lr_find': False, 'auto_scale_batch_size': False}
 
 

@@ -62,51 +62,54 @@ class Data(LightningDataModule):
         self.tokenizer = tokenizer
 
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(self.train_data,
-                          batch_size=self.batch_size,
-                          shuffle=False,
-                          sampler=RandomSampler(self.train_data),
-                          batch_sampler=None,
-                          num_workers=6,
-                          collate_fn=self.gpt2_collater,
-                          pin_memory=True,
-                          drop_last=False,
-                          timeout=0)
+        return DataLoader(
+            self.train_data,
+            batch_size=self.batch_size,
+            shuffle=False,
+            sampler=RandomSampler(self.train_data),
+            batch_sampler=None,
+            #num_workers=6,
+            num_workers=0,
+            collate_fn=self._bert_collater,
+            pin_memory=True,
+            drop_last=False,
+            timeout=0)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(self.valid_data,
-                          batch_size=self.d_params['batch_size']['val'],
-                          shuffle=False,
-                          sampler=RandomSampler(self.valid_data),
-                          batch_sampler=None,
-                          num_workers=6,
-                          collate_fn=self.gpt2_collater,
-                          pin_memory=True,
-                          drop_last=False,
-                          timeout=0)
+        return DataLoader(
+            self.valid_data,
+            batch_size=self.d_params['batch_size']['val'],
+            shuffle=False,
+            sampler=RandomSampler(self.valid_data),
+            batch_sampler=None,
+            #num_workers=6,
+            num_workers=0,
+            collate_fn=self._bert_collater,
+            pin_memory=True,
+            drop_last=False,
+            timeout=0)
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(self.test_data,
-                          batch_size=self.d_params['batch_size']['test'],
-                          shuffle=False,
-                          sampler=RandomSampler(self.test_data),
-                          batch_sampler=None,
-                          num_workers=6,
-                          collate_fn=self.gpt2_collater,
-                          pin_memory=True,
-                          drop_last=False,
-                          timeout=0)
+        return DataLoader(
+            self.test_data,
+            batch_size=self.d_params['batch_size']['test'],
+            shuffle=False,
+            sampler=RandomSampler(self.test_data),
+            batch_sampler=None,
+            #num_workers=6,
+            num_workers=0,
+            collate_fn=self._bert_collater,
+            pin_memory=True,
+            drop_last=False,
+            timeout=0)
 
-    def gpt2_collater(self, examples: List[Dict[str, str]]) -> Dict[str, Any]:
-        batch_sentence_ids, batch_texts, batch_labels = [], [], []
+    def _bert_collater(
+            self, examples: List[Dict[str, str]]) -> Dict[str, Any]:
+        batch_texts, batch_labels = [], []
         for example in examples:
-            batch_sentence_ids.append(example['sentence_id'])
-            batch_texts.append(example['text'])
-            batch_labels.append(
-                self.dataset_metadata['class_info']['names'].index(
-                    example['label']))
+            batch_texts.append(example['sentence'])
+            batch_labels.append(example['label'])
 
-        # input to Bert model is truncated if it is longer than max allowed
         batch_model_inputs = self.tokenizer(text=batch_texts,
                                             padding=True,
                                             truncation=True,
@@ -124,8 +127,7 @@ class Data(LightningDataModule):
                 batch_model_inputs['token_type_ids'].type(torch.LongTensor)
             },
             'labels':
-            (torch.LongTensor(batch_labels)).view(len(batch_labels), 1),
-            'sentence_ids': tuple(batch_sentence_ids)
+            (torch.LongTensor(batch_labels)).view(len(batch_labels), 1)
         }
 
 
@@ -147,19 +149,49 @@ def _get_trainValTest_data(
            List[Dict[str, str]]]:
     assert split['train'] + split['val'] + split['test']
 
-    df = pd.read_csv(data_file_path)
+    df = pd.read_csv(data_file_path, encoding='unicode_escape')
+    #df.drop(columns=['POS'])
+
+    # remove low frequency entities
+    entities_to_remove = ["B-art", "I-art", "B-eve", "I-eve", "B-nat", "I-nat"]
+    df = df[~df.Tag.isin(entities_to_remove)]
+    unique_labels = list(df.Tag.unique())
+    # convert NaN, of sentence # column, to previous sentence #
+    df = df.fillna(method='ffill')
+
+    # create a new column called "sentence" which groups words of a sentence
+    df['sentence'] = df[['Sentence #', 'Word', 'Tag']].groupby(
+        ['Sentence #'])['Word'].transform(lambda x: ' '.join(x))
+
+    def strOfTextLabels_to_strOfNumLabels(stg: str) -> str:
+        new_stg = ""
+        for label_txt in stg:
+            label_num = unique_labels.index(label_txt)
+            new_stg += f'{label_num} '
+        return new_stg
+
+    # create new column called "label" which groups the tags by sentence; also
+    # convert text-labels to number-labels
+    df['label'] = df[['Sentence #', 'Word', 'Tag']].groupby(
+        ['Sentence #'])['Tag'].transform(strOfTextLabels_to_strOfNumLabels)
+    # keep the "sentence" and "label" columns, and drop duplicates
+    df = df[["sentence", "label"]].drop_duplicates().reset_index(drop=True)
+
+    # Split dataset into train, val, test
     if not split['train'] and split['test']:
         # testing a dataset on a checkpoint file; no training
         df_train, df_val, df_test, split['val'], split[
             'test'] = None, None, df, 0, 100
     else:
         df_train, df_temp = train_test_split(df,
-                                             stratify=df["label"],
+                                             shuffle=True,
+                                             stratify=None,
                                              train_size=(split['train'] / 100),
                                              random_state=42)
         df_val, df_test = train_test_split(
             df_temp,
-            stratify=df_temp["label"],
+            shuffle=True,
+            stratify=None,
             test_size=(split['test'] / (split['val'] + split['test'])),
             random_state=42)
         assert len(df) == len(df_train) + len(df_val) + len(df_test)
@@ -172,36 +204,7 @@ def _get_trainValTest_data(
                         len(df_val) if df_val is not None else 0,
                         len(df_test) if df_test is not None else 0),
         },
-        'class_info': {
-            'names': [],  # this is filled a little later in the code
-            'dataset_prop':
-            df.label.value_counts(normalize=True).to_dict(),
-            'train_prop':
-            df_train.label.value_counts(
-                normalize=True).to_dict() if df_train is not None else 0,
-            'val_prop':
-            df_val.label.value_counts(
-                normalize=True).to_dict() if df_val is not None else 0,
-            'test_prop':
-            df_test.label.value_counts(
-                normalize=True).to_dict() if df_test is not None else 0,
-            'test_lengths':
-            df_test.label.value_counts(
-                normalize=False).to_dict() if df_test is not None else 0
-        }
     }
-    # list of unique labels in original dataset which are ordered by their
-    # proportion of examples in test dataset; makes it easier to visualize
-    ordered__unique_labels = [
-        k for k, v in sorted(dataset_metadata["class_info"]
-                             ["test_lengths"].items(),
-                             key=lambda item: item[1],
-                             reverse=True)
-    ]
-    for dataset_unique_label in df.label.unique().tolist():
-        if dataset_unique_label not in ordered__unique_labels:
-            ordered__unique_labels.append(dataset_unique_label)
-    dataset_metadata["class_info"]["names"] = ordered__unique_labels
 
     return dataset_metadata, df_train.to_dict(
         'records') if df_train is not None else 0, df_val.to_dict(

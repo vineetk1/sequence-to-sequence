@@ -51,8 +51,8 @@ class Model(LightningModule):
             exit()
 
         if model_init['tokenizer_type'] == "bert":
-            from transformers import BertTokenizer
-            self.tokenizer = BertTokenizer.from_pretrained(
+            from transformers import BertTokenizerFast
+            self.tokenizer = BertTokenizerFast.from_pretrained(
                 'bert-large-uncased')
         else:
             strng = ('unknown tokenizer_type: '
@@ -71,6 +71,19 @@ class Model(LightningModule):
     def get_tokenizer(self):
         return self.tokenizer
 
+    def kludge(self, batch_size: Dict[str, int]):
+        '''
+        Lightning gives this incorrect warning "/home/vin/.local/lib/python3.8/
+        site-packages/pytorch_lightning/utilities/data.py:59: UserWarning:
+        Trying to infer the `batch_size` from an ambiguous collection. The
+        batch size we found is 4. To avoid any miscalculations, use
+        `self.log(..., batch_size=batch_size)`."
+        To shut this warning, batch_size is specified in self.log(....)
+        Future versions of Lightning will get rid of this warning. Then, remove
+        this method and reference of branch_size in self.log(...)
+        '''
+        self.batch_size = batch_size
+
     def forward(self):
         logg.debug('')
 
@@ -83,6 +96,7 @@ class Model(LightningModule):
                  on_step=False,
                  on_epoch=True,
                  prog_bar=True,
+                 batch_size=self.batch_size['train'],
                  logger=False)
         return loss
 
@@ -104,6 +118,7 @@ class Model(LightningModule):
                  on_step=False,
                  on_epoch=True,
                  prog_bar=True,
+                 batch_size=self.batch_size['val'],
                  logger=False)
         return loss
 
@@ -123,6 +138,7 @@ class Model(LightningModule):
                  on_step=True,
                  on_epoch=True,
                  prog_bar=True,
+                 batch_size=self.batch_size['test'],
                  logger=True)
         try:
             if self.statistics:

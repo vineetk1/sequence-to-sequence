@@ -74,8 +74,8 @@ def main():
                      f'dictionary in the file {argv[1]}.')
             logg.critical(strng)
             exit()
-        dirPath = Path(user_dicts['ld_resume_chkpt']
-                       ['resume_from_checkpoint']).parents[1]
+        dirPath = Path(
+            user_dicts['ld_resume_chkpt']['resume_from_checkpoint']).parents[1]
         chkpt_dicts = full_load(
             dirPath.joinpath('hyperparameters_used.yaml').read_text())
         # chkpt_dicts has 2 additional dicts - app_specific_init, app_specific
@@ -153,6 +153,9 @@ def main():
                           deterministic=True,
                           num_sanity_val_steps=0,
                           log_every_n_steps=100,
+                          accumulate_grad_batches=32,
+                          #stochastic_weight_avg=True,
+                          gradient_clip_val=0.5,
                           callbacks=[checkpoint_callback, lr_monitor],
                           **user_dicts['trainer'])
     elif not ('no_testing' in user_dicts['misc']
@@ -169,24 +172,27 @@ def main():
         exit()
 
     data = Data(user_dicts['data'])
+    data.put_tokenizer(tokenizer=model.get_tokenizer())
     data.prepare_data(no_training=True if 'no_training' in user_dicts['misc']
                       and user_dicts['misc']['no_training'] else False,
                       no_testing=True if 'no_testing' in user_dicts['misc']
                       and user_dicts['misc']['no_testing'] else False)
     dataset_metadata = data.get_dataset_metadata()
-    data.put_tokenizer(tokenizer=model.get_tokenizer())
 
+    model.kludge(dataset_metadata['batch_size'])
     trainer.tune(model, datamodule=data)
     if not ('no_training' in user_dicts['misc']
             and user_dicts['misc']['no_training']):
         # Training: True, Testing: Don't care
-        trainer.fit(model, datamodule=data)
+        trainer.fit(model,
+                    train_dataloaders=data.train_dataloader(),
+                    val_dataloaders=data.val_dataloader())
         if not ('no_testing' in user_dicts['misc']
                 and user_dicts['misc']['no_testing']):
             if 'statistics' in user_dicts['misc'] and user_dicts['misc'][
                     'statistics']:
                 model.set_statistics(dataset_metadata, dirPath)
-            trainer.test()  # auto loads checkpoint file with lowest val loss
+            trainer.test(ckpt_path='best', dataloaders=data.test_dataloader())
             model.clear_statistics()
     elif not ('no_testing' in user_dicts['misc']
               and user_dicts['misc']['no_testing']):
@@ -194,7 +200,7 @@ def main():
         if 'statistics' in user_dicts['misc'] and user_dicts['misc'][
                 'statistics']:
             model.set_statistics(dataset_metadata, dirPath)
-        trainer.test(model, test_dataloaders=data.test_dataloader())
+        trainer.test(model, dataloaders=data.test_dataloader())
         model.clear_statistics()
     else:
         # Training: False, Testing: False

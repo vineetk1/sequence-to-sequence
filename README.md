@@ -3,7 +3,7 @@
 * PyTorch version >= 1.10.2+cu113
 * Python version >= 3.8.10
 * PyTorch-Lightning version >= 1.5.9
-* Huggingface Transformers version >= 4.16.2
+* Huggingface Transformers version >= 4.17.0
 * Tensorboard version >= 2.8.0
 * Pandas >= 1.4.0
 * Scikit-learn >= 1.0.2

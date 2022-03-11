@@ -103,8 +103,7 @@ class Data(LightningDataModule):
             drop_last=False,
             timeout=0)
 
-    def _bert_collater(
-            self, examples: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _bert_collater(self, examples: List[Dict[str, str]]) -> Dict[str, Any]:
         batch_texts, batch_labels = [], []
         for example in examples:
             batch_texts.append(example['sentence'])
@@ -150,32 +149,34 @@ def _get_trainValTest_data(
     assert split['train'] + split['val'] + split['test']
 
     df = pd.read_csv(data_file_path, encoding='unicode_escape')
-    #df.drop(columns=['POS'])
 
-    # remove low frequency entities
-    entities_to_remove = ["B-art", "I-art", "B-eve", "I-eve", "B-nat", "I-nat"]
-    df = df[~df.Tag.isin(entities_to_remove)]
+    # remove unneeded data
+    df = df.drop(columns=['POS'])
+    df = df[df.Tag.isin(["B-art", "I-art", "B-eve", "I-eve", "B-nat", "I-nat"])
+            == False]
+
+    # get a list of unique word-labels
     unique_labels = list(df.Tag.unique())
     # convert NaN, of sentence # column, to previous sentence #
     df = df.fillna(method='ffill')
 
+    # group words and tags of a sentence
     # create a new column called "sentence" which groups words of a sentence
-    df['sentence'] = df[['Sentence #', 'Word', 'Tag']].groupby(
+    df['sentence'] = df[['Sentence #', 'Word']].groupby(
         ['Sentence #'])['Word'].transform(lambda x: ' '.join(x))
+    df = df.drop(columns=['Word'])
+    # create a new column called "word_labels" which groups tags of a sentence
+    df['word_labels'] = df[['Sentence #', 'Tag']].groupby(
+        ['Sentence #'])['Tag'].transform(lambda x: ' '.join(x))
+    df = df.drop(columns=['Tag'])
+    df = df.drop(columns=['Sentence #'])
+    # drop duplicate rows and reset the index
+    df = df.drop_duplicates().reset_index(drop=True)
 
-    def strOfTextLabels_to_strOfNumLabels(stg: str) -> str:
-        new_stg = ""
-        for label_txt in stg:
-            label_num = unique_labels.index(label_txt)
-            new_stg += f'{label_num} '
-        return new_stg
-
-    # create new column called "label" which groups the tags by sentence; also
-    # convert text-labels to number-labels
-    df['label'] = df[['Sentence #', 'Word', 'Tag']].groupby(
-        ['Sentence #'])['Tag'].transform(strOfTextLabels_to_strOfNumLabels)
-    # keep the "sentence" and "label" columns, and drop duplicates
-    df = df[["sentence", "label"]].drop_duplicates().reset_index(drop=True)
+    # convert word_labels to token_labels
+    df['token_labels'] = pd.Series(
+        map(word_labels_to_token_labels, df['sentence'], df['word_labels']))
+    df = df.drop(columns=['word_labels'])
 
     # Split dataset into train, val, test
     if not split['train'] and split['test']:
@@ -210,3 +211,9 @@ def _get_trainValTest_data(
         'records') if df_train is not None else 0, df_val.to_dict(
             'records') if df_val is not None else 0, df_test.to_dict(
                 'records') if df_test is not None else 0
+
+
+def word_labels_to_token_labels(sentence: str, word_labels: str) -> str:
+    for word in sentence:
+        pass
+    return 1

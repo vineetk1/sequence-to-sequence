@@ -149,15 +149,16 @@ def main():
             filename=ckpt_filename)
         lr_monitor = LearningRateMonitor(logging_interval='epoch',
                                          log_momentum=True)
-        trainer = Trainer(logger=tb_logger,
-                          deterministic=True,
-                          num_sanity_val_steps=0,
-                          log_every_n_steps=100,
-                          accumulate_grad_batches=32,
-                          #stochastic_weight_avg=True,
-                          gradient_clip_val=0.5,
-                          callbacks=[checkpoint_callback, lr_monitor],
-                          **user_dicts['trainer'])
+        trainer = Trainer(
+            logger=tb_logger,
+            deterministic=True,
+            num_sanity_val_steps=0,
+            log_every_n_steps=100,
+            accumulate_grad_batches=32,
+            #stochastic_weight_avg=True,
+            gradient_clip_val=0.5,
+            callbacks=[checkpoint_callback, lr_monitor],
+            **user_dicts['trainer'])
     elif not ('no_testing' in user_dicts['misc']
               and user_dicts['misc']['no_testing']):
         # Training: False, Testing: True
@@ -171,12 +172,21 @@ def main():
         logg.critical(strng)
         exit()
 
-    data = Data(user_dicts['data'])
+    data = Data(user_dicts['data']['batch_size'] if 'batch_size' in
+                user_dicts['data'] else {})
     data.put_tokenizer(tokenizer=model.get_tokenizer())
-    data.prepare_data(no_training=True if 'no_training' in user_dicts['misc']
-                      and user_dicts['misc']['no_training'] else False,
-                      no_testing=True if 'no_testing' in user_dicts['misc']
-                      and user_dicts['misc']['no_testing'] else False)
+    if 'dataset_path' in user_dicts['data'] and isinstance(
+            user_dicts['data']['dataset_path'], str):
+        data.prepare_data(user_dicts['data']['dataset_path'])
+    else:
+        logg.critical('Must specify a path to the dataset.')
+        exit()
+    data.setup(dataset_split=user_dicts['data']['dataset_split']
+               if 'dataset_split' in user_dicts['data'] else {},
+               no_training=True if 'no_training' in user_dicts['misc']
+               and user_dicts['misc']['no_training'] else False,
+               no_testing=True if 'no_testing' in user_dicts['misc']
+               and user_dicts['misc']['no_testing'] else False)
     dataset_metadata = data.get_dataset_metadata()
 
     model.kludge(dataset_metadata['batch_size'])

@@ -14,28 +14,29 @@ logg = getLogger(__name__)
 
 
 class Data(LightningDataModule):
-    def __init__(self, d_params: dict):
+    def __init__(self, batch_size: dict):
         super().__init__()
-        if 'batch_size' not in d_params:
-            logg.critical('"batch_size" MUST be specified')
-            exit()
         for batch_size_key in ('train', 'val', 'test'):
-            if batch_size_key not in d_params['batch_size'] or d_params[
-                    'batch_size'][batch_size_key] is None or d_params[
-                        'batch_size'][batch_size_key] == 0:
-                d_params['batch_size'][batch_size_key] = 1
+            if batch_size_key not in batch_size or not isinstance(
+                    batch_size[batch_size_key],
+                    int) or batch_size[batch_size_key] == 0:
+                batch_size[batch_size_key] = 1
+        self.batch_size = batch_size
         # Trainer('auto_scale_batch_size': True...) requires self.batch_size
-        self.batch_size = d_params['batch_size']['train']
-        self.d_params = d_params
+        self.batch_size = batch_size['train']
 
-    def prepare_data(self,
-                     no_training: bool = False,
-                     no_testing: bool = False) -> None:
+    def prepare_data(self, dataset_path: str) -> None:
+        load_dataset(dataset_path)
+
+    def setup(self, dataset_split: Dict[str, int], no_training: bool,
+              no_testing: bool):
+        for dataset_split_key in ('train', 'val', 'test'):
+            if dataset_split_key not in dataset_split or not isinstance(
+                    dataset_split[dataset_split_key], int):
+                dataset_split[dataset_split_key] = 0
         self.dataset_metadata, train_data, val_data, test_data =\
             _get_trainValTest_data(
-             data_file_path=self.d_params['default_format_path'],
-             batch_size=self.d_params['batch_size'],
-             split=self.d_params['dataset_split'])
+                    batch_size=self.batch_size, split=dataset_split)
         if not no_training:
             self.train_data = Data_set(train_data)
             self.valid_data = Data_set(val_data)
@@ -64,7 +65,7 @@ class Data(LightningDataModule):
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_data,
-            batch_size=self.batch_size,
+            batch_size=self.batch_size['train'],
             shuffle=False,
             sampler=RandomSampler(self.train_data),
             batch_sampler=None,
@@ -78,7 +79,7 @@ class Data(LightningDataModule):
     def val_dataloader(self) -> DataLoader:
         return DataLoader(
             self.valid_data,
-            batch_size=self.d_params['batch_size']['val'],
+            batch_size=self.batch_size['val'],
             shuffle=False,
             sampler=RandomSampler(self.valid_data),
             batch_sampler=None,
@@ -92,7 +93,7 @@ class Data(LightningDataModule):
     def test_dataloader(self) -> DataLoader:
         return DataLoader(
             self.test_data,
-            batch_size=self.d_params['batch_size']['test'],
+            batch_size=self.batch_size['test'],
             shuffle=False,
             sampler=RandomSampler(self.test_data),
             batch_sampler=None,
@@ -102,6 +103,9 @@ class Data(LightningDataModule):
             pin_memory=True,
             drop_last=False,
             timeout=0)
+
+    def predict_dataloader(self) -> DataLoader:
+        pass
 
     def _bert_collater(self, examples: List[Dict[str, str]]) -> Dict[str, Any]:
         batch_texts, batch_labels = [], []
@@ -142,13 +146,8 @@ class Data_set(Dataset):
         return (self.examples[idx])
 
 
-def _get_trainValTest_data(
-    data_file_path: str, batch_size: Dict[str, int], split: Dict[str, int]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]], List[Dict[str, str]],
-           List[Dict[str, str]]]:
-    assert split['train'] + split['val'] + split['test']
-
-    df = pd.read_csv(data_file_path, encoding='unicode_escape')
+def load_dataset(dataset_path: str) -> None:
+    df = pd.read_csv(dataset_path, encoding='unicode_escape')
 
     # remove unneeded data
     df = df.drop(columns=['POS'])
@@ -177,6 +176,13 @@ def _get_trainValTest_data(
     df['token_labels'] = pd.Series(
         map(word_labels_to_token_labels, df['sentence'], df['word_labels']))
     df = df.drop(columns=['word_labels'])
+
+
+def _get_trainValTest_data(
+    batch_size: Dict[str, int], split: Dict[str, int]
+) -> Tuple[Dict[str, Any], List[Dict[str, str]], List[Dict[str, str]],
+           List[Dict[str, str]]]:
+    assert split['train'] + split['val'] + split['test']
 
     # Split dataset into train, val, test
     if not split['train'] and split['test']:

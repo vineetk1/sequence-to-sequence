@@ -172,9 +172,9 @@ def main():
         logg.critical(strng)
         exit()
 
-    data = Data(user_dicts['data']['batch_size'] if 'batch_size' in
-                user_dicts['data'] else {})
-    data.put_tokenizer(tokenizer=model.get_tokenizer())
+    data = Data(tokenizer=model.get_tokenizer(),
+                batch_size=user_dicts['data']['batch_size']
+                if 'batch_size' in user_dicts['data'] else {})
     if 'dataset_path' in user_dicts['data'] and isinstance(
             user_dicts['data']['dataset_path'], str):
         data.prepare_data(user_dicts['data']['dataset_path'])

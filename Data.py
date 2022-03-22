@@ -7,36 +7,42 @@ import torch
 from torch.utils.data import Dataset, RandomSampler, DataLoader
 from logging import getLogger
 from typing import List, Dict, Tuple, Any
-import pandas as pd
-from sklearn.model_selection import train_test_split
+from Dialog_dataset import Dialog_dataset
 
 logg = getLogger(__name__)
 
 
 class Data(LightningDataModule):
-    def __init__(self, batch_size: dict):
+    def __init__(self, tokenizer, batch_size: dict):
         super().__init__()
+        self.tokenizer = tokenizer
+        self.dialog = Dialog_dataset()
         for batch_size_key in ('train', 'val', 'test'):
             if batch_size_key not in batch_size or not isinstance(
                     batch_size[batch_size_key],
                     int) or batch_size[batch_size_key] == 0:
                 batch_size[batch_size_key] = 1
-        self.batch_size = batch_size
+        self.batch_size_val = batch_size['val']
+        self.batch_size_test = batch_size['test']
         # Trainer('auto_scale_batch_size': True...) requires self.batch_size
         self.batch_size = batch_size['train']
 
     def prepare_data(self, dataset_path: str) -> None:
-        load_dataset(dataset_path)
+        self.dialog.load_dataset(self.tokenizer, dataset_path)
 
     def setup(self, dataset_split: Dict[str, int], no_training: bool,
-              no_testing: bool):
+              no_testing: bool) -> None:
         for dataset_split_key in ('train', 'val', 'test'):
             if dataset_split_key not in dataset_split or not isinstance(
                     dataset_split[dataset_split_key], int):
                 dataset_split[dataset_split_key] = 0
         self.dataset_metadata, train_data, val_data, test_data =\
-            _get_trainValTest_data(
-                    batch_size=self.batch_size, split=dataset_split)
+            self.dialog.split_dataset(split=dataset_split)
+        self.dataset_metadata['batch_size'] = {
+            'train': self.batch_size,
+            'val': self.batch_size_val,
+            'test': self.batch_size_test
+        }
         if not no_training:
             self.train_data = Data_set(train_data)
             self.valid_data = Data_set(val_data)
@@ -59,13 +65,10 @@ class Data(LightningDataModule):
     def get_dataset_metadata(self) -> Dict[str, Any]:
         return self.dataset_metadata
 
-    def put_tokenizer(self, tokenizer):
-        self.tokenizer = tokenizer
-
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_data,
-            batch_size=self.batch_size['train'],
+            batch_size=self.batch_size,
             shuffle=False,
             sampler=RandomSampler(self.train_data),
             batch_sampler=None,
@@ -79,7 +82,7 @@ class Data(LightningDataModule):
     def val_dataloader(self) -> DataLoader:
         return DataLoader(
             self.valid_data,
-            batch_size=self.batch_size['val'],
+            batch_size=self.batch_size_val,
             shuffle=False,
             sampler=RandomSampler(self.valid_data),
             batch_sampler=None,
@@ -93,7 +96,7 @@ class Data(LightningDataModule):
     def test_dataloader(self) -> DataLoader:
         return DataLoader(
             self.test_data,
-            batch_size=self.batch_size['test'],
+            batch_size=self.batch_size_test,
             shuffle=False,
             sampler=RandomSampler(self.test_data),
             batch_sampler=None,
@@ -144,82 +147,3 @@ class Data_set(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, str]:
         return (self.examples[idx])
-
-
-def load_dataset(dataset_path: str) -> None:
-    df = pd.read_csv(dataset_path, encoding='unicode_escape')
-
-    # remove unneeded data
-    df = df.drop(columns=['POS'])
-    df = df[df.Tag.isin(["B-art", "I-art", "B-eve", "I-eve", "B-nat", "I-nat"])
-            == False]
-
-    # get a list of unique word-labels
-    unique_labels = list(df.Tag.unique())
-    # convert NaN, of sentence # column, to previous sentence #
-    df = df.fillna(method='ffill')
-
-    # group words and tags of a sentence
-    # create a new column called "sentence" which groups words of a sentence
-    df['sentence'] = df[['Sentence #', 'Word']].groupby(
-        ['Sentence #'])['Word'].transform(lambda x: ' '.join(x))
-    df = df.drop(columns=['Word'])
-    # create a new column called "word_labels" which groups tags of a sentence
-    df['word_labels'] = df[['Sentence #', 'Tag']].groupby(
-        ['Sentence #'])['Tag'].transform(lambda x: ' '.join(x))
-    df = df.drop(columns=['Tag'])
-    df = df.drop(columns=['Sentence #'])
-    # drop duplicate rows and reset the index
-    df = df.drop_duplicates().reset_index(drop=True)
-
-    # convert word_labels to token_labels
-    df['token_labels'] = pd.Series(
-        map(word_labels_to_token_labels, df['sentence'], df['word_labels']))
-    df = df.drop(columns=['word_labels'])
-
-
-def _get_trainValTest_data(
-    batch_size: Dict[str, int], split: Dict[str, int]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]], List[Dict[str, str]],
-           List[Dict[str, str]]]:
-    assert split['train'] + split['val'] + split['test']
-
-    # Split dataset into train, val, test
-    if not split['train'] and split['test']:
-        # testing a dataset on a checkpoint file; no training
-        df_train, df_val, df_test, split['val'], split[
-            'test'] = None, None, df, 0, 100
-    else:
-        df_train, df_temp = train_test_split(df,
-                                             shuffle=True,
-                                             stratify=None,
-                                             train_size=(split['train'] / 100),
-                                             random_state=42)
-        df_val, df_test = train_test_split(
-            df_temp,
-            shuffle=True,
-            stratify=None,
-            test_size=(split['test'] / (split['val'] + split['test'])),
-            random_state=42)
-        assert len(df) == len(df_train) + len(df_val) + len(df_test)
-
-    dataset_metadata = {
-        'batch_size': batch_size,
-        'dataset_info': {
-            'split': (split['train'], split['val'], split['test']),
-            'lengths': (len(df), len(df_train) if df_train is not None else 0,
-                        len(df_val) if df_val is not None else 0,
-                        len(df_test) if df_test is not None else 0),
-        },
-    }
-
-    return dataset_metadata, df_train.to_dict(
-        'records') if df_train is not None else 0, df_val.to_dict(
-            'records') if df_val is not None else 0, df_test.to_dict(
-                'records') if df_test is not None else 0
-
-
-def word_labels_to_token_labels(sentence: str, word_labels: str) -> str:
-    for word in sentence:
-        pass
-    return 1

@@ -20,12 +20,12 @@ class Dialog_dataset():
         dirName = pathlib.Path(dataset_path).resolve(strict=True).parents[0]
         fileName_noSuffix = pathlib.Path(dataset_path).stem
         filePath = dirName.joinpath(f'{fileName_noSuffix}.df')
-        '''
+
         if filePath.exists():
-            logg.info(f'Loaded already existing {filePath}')
+            logg.info(f'Loaded, already existing {filePath}')
             self.df = pd.read_pickle(filePath)
             return
-        '''
+
         self.df = pd.read_csv(dataset_path, encoding='unicode_escape')
 
         # remove unneeded data
@@ -54,7 +54,6 @@ class Dialog_dataset():
         #assert not self.df.duplicated(subset=['sentence'], keep='first').any()
         # total number of duplicate sentences
         #assert self.df.duplicated(subset=['sentence'], keep='first').sum()
-        #self.df['sentence'].duplicated().sum()
         # show all occurrences of duplicate sentences
         #self.df[self.df.duplicated(subset=['sentence'], keep=False)]
 
@@ -69,13 +68,26 @@ class Dialog_dataset():
         self.df['sentence'] = pd.Series(
             map(self._pre_tokenization, self.df['sentence']))
 
-        # convert word_labels to token_labels
+        # convert word_labels to token_labels_names
         self.df['token_labels'] = pd.Series(
-            map(self._word_labels_to_token_labels, self.df['sentence'],
+            map(self._word_labels_to_token_labels_names, self.df['sentence'],
                 self.df['word_labels']))
         self.df = self.df.drop(columns=['word_labels'])
 
-        # remove all rows that have an empty list for token_label
+        # remove all rows that have None
+        self.df = self.df.dropna()
+        self.df.reset_index(drop=True, inplace=True)
+
+        # convert token-label names to numbers
+        def _token_labels_names2numbers(token_labels_names: List) -> List:
+            return [
+                self.unique_labels.index(token_label_name)
+                if token_label_name != '-100' else -100
+                for token_label_name in token_labels_names
+            ]
+
+        self.df['token_labels'] = pd.Series(
+            map(_token_labels_names2numbers, self.df['token_labels']))
 
         self.df.to_pickle(filePath)
 
@@ -92,19 +104,23 @@ class Dialog_dataset():
         assert sentence
         return sentence
 
-    def _word_labels_to_token_labels(self, sentence: List,
-                                     words_labls: str) -> List:
+    def _word_labels_to_token_labels_names(self, sentence: List,
+                                           words_labls: str) -> List:
         '''
         ************************************************************
-        sentence.split() or tokenizer fail when sentence has both
+        (1) sentence.split() or tokenizer fail when sentence has both
         apostrope and quotes without the escape characer; Test it out; Use
         try-except
+        (2) truncation if sentence (not history) is longer than max length;
+            note: only sentence gets labels and not the history
+        (3) make sure beginning of history is truncated; how about doing a
+            summary of history
         ************************************************************
         '''
         words_labels = words_labls.split()
         if len(sentence) != len(words_labels):
             print(f'\n{sentence}\n')
-            return []
+            return None
         assert words_labels
         assert len(sentence) == len(words_labels)
         tokens = self.tokenizer.convert_ids_to_tokens(
@@ -144,7 +160,6 @@ class Dialog_dataset():
     ) -> Tuple[Dict[str, Any], List[Dict[str, str]], List[Dict[str, str]],
                List[Dict[str, str]]]:
         assert split['train'] + split['val'] + split['test'] == 100
-
         # Split dataset into train, val, test
         if not split['train'] and split['test']:
             # testing a dataset on a checkpoint file; no training
@@ -172,6 +187,7 @@ class Dialog_dataset():
                 (len(self.df), len(df_train) if df_train is not None else 0,
                  len(df_val) if df_val is not None else 0,
                  len(df_test) if df_test is not None else 0),
+                'num_labels': len(self.unique_labels)
             },
         }
 

@@ -110,15 +110,17 @@ class Data(LightningDataModule):
     def predict_dataloader(self) -> DataLoader:
         pass
 
-    def _bert_collater(self, examples: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _bert_collater(
+            self, examples: List[Dict[str, List]]) -> Dict[str, torch.Tensor]:
         batch_texts, batch_labels = [], []
         for example in examples:
             batch_texts.append(example['sentence'])
-            batch_labels.append(example['label'])
+            batch_labels.append(example['token_labels'])
 
         batch_model_inputs = self.tokenizer(text=batch_texts,
                                             padding=True,
                                             truncation=True,
+                                            is_split_into_words=True,
                                             return_tensors='pt',
                                             return_token_type_ids=True,
                                             return_attention_mask=True)
@@ -133,7 +135,7 @@ class Data(LightningDataModule):
                 batch_model_inputs['token_type_ids'].type(torch.LongTensor)
             },
             'labels':
-            (torch.LongTensor(batch_labels)).view(len(batch_labels), 1)
+            torch.LongTensor(batch_labels)
         }
 
 

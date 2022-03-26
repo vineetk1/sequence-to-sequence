@@ -6,8 +6,8 @@ from pytorch_lightning import LightningDataModule
 import torch
 from torch.utils.data import Dataset, RandomSampler, DataLoader
 from logging import getLogger
-from typing import List, Dict, Tuple, Any
-from Dialog_dataset import Dialog_dataset
+from typing import List, Dict, Any
+from Dialog_dataset import prepare_dataset, split_dataset
 
 logg = getLogger(__name__)
 
@@ -16,7 +16,6 @@ class Data(LightningDataModule):
     def __init__(self, tokenizer, batch_size: dict):
         super().__init__()
         self.tokenizer = tokenizer
-        self.dialog = Dialog_dataset()
         for batch_size_key in ('train', 'val', 'test'):
             if batch_size_key not in batch_size or not isinstance(
                     batch_size[batch_size_key],
@@ -28,17 +27,17 @@ class Data(LightningDataModule):
         self.batch_size = batch_size['train']
 
     def prepare_data(self, dataset_path: str) -> None:
-        self.dialog.load_dataset(self.tokenizer, dataset_path)
+        prepare_dataset(self.tokenizer, dataset_path)
 
-    def setup(self, dataset_split: Dict[str, int], no_training: bool,
-              no_testing: bool) -> None:
+    def split_dataset(self, dataset_path: str, dataset_split: Dict[str, int],
+                      no_training: bool, no_testing: bool) -> Dict[str, Any]:
         for dataset_split_key in ('train', 'val', 'test'):
             if dataset_split_key not in dataset_split or not isinstance(
                     dataset_split[dataset_split_key], int):
                 dataset_split[dataset_split_key] = 0
-        self.dataset_metadata, train_data, val_data, test_data =\
-            self.dialog.split_dataset(split=dataset_split)
-        self.dataset_metadata['batch_size'] = {
+        dataset_metadata, train_data, val_data, test_data = split_dataset(
+            dataset_path=dataset_path, split=dataset_split)
+        dataset_metadata['batch_size'] = {
             'train': self.batch_size,
             'val': self.batch_size_val,
             'test': self.batch_size_test
@@ -50,20 +49,7 @@ class Data(LightningDataModule):
             self.test_data = Data_set(test_data)
         if no_training and no_testing:
             logg.debug('No Training and no Testing')
-
-    @staticmethod
-    def app_specific_params() -> Tuple[Dict[Any, Any], Dict[Any, Any]]:
-        app_specific_init, app_specific = {}, {}
-        app_specific_init['num_classes'] = 8
-        app_specific_init['imbalanced_classes'] = [
-            0.3030, 0.2167, 0.1460, 0.1061, 0.0925, 0.0650, 0.0567, 0.0140
-        ]
-
-        app_specific['num_classes'] = 8
-        return app_specific_init, app_specific
-
-    def get_dataset_metadata(self) -> Dict[str, Any]:
-        return self.dataset_metadata
+        return dataset_metadata
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -134,8 +120,7 @@ class Data(LightningDataModule):
                 'token_type_ids':
                 batch_model_inputs['token_type_ids'].type(torch.LongTensor)
             },
-            'labels':
-            torch.LongTensor(batch_labels)
+            'labels': torch.LongTensor(batch_labels)
         }
 
 

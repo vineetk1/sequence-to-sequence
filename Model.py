@@ -15,61 +15,42 @@ logg = getLogger(__name__)
 
 
 class Model(LightningModule):
-    def __init__(self, model_init: dict = {}, app_specific_init: dict = {}):
+    def __init__(self, model_init: dict, num_classes: int):
         super().__init__()
         # save parameters for future use of "loading a model from
         # checkpoint" or "resuming training from checkpoint"
         self.save_hyperparameters()
         # Trainer('auto_lr_find': True,...) requires self.lr
 
-        if model_init['model_type'] == "bert_large_uncased":
+        if model_init['model'] == "bert":
             from transformers import BertModel
-            self.model = BertModel.from_pretrained('bert-large-uncased')
+            self.model = BertModel.from_pretrained(model_init['model_type'])
             class_head_dropout = model_init[
                 'class_head_dropout'] if 'class_head_dropout' in model_init\
                 else self.model.config.hidden_dropout_prob
             self.classification_head_dropout = torch.nn.Dropout(
                 class_head_dropout)
             self.classification_head = torch.nn.Linear(
-                self.model.config.hidden_size,
-                app_specific_init['num_classes'])
+                self.model.config.hidden_size, num_classes)
+            self.num_classes = num_classes
             self.classification_head.weight.data.normal_(
                 mean=0.0, std=self.model.config.initializer_range)
             if self.classification_head.bias is not None:
                 self.classification_head.bias.data.zero_()
-            if 'imbalanced_classes' in app_specific_init and app_specific_init[
-                    'imbalanced_classes']:
-                weights = torch.tensor(app_specific_init['imbalanced_classes'])
-                weights = 1.0 / weights
-                weights = weights / weights.sum()
-                self.loss_fct = torch.nn.CrossEntropyLoss(weight=weights)
-            else:
-                self.loss_fct = torch.nn.CrossEntropyLoss()
+            self.loss_fct = torch.nn.CrossEntropyLoss()
         else:
             strng = ('unknown model_type: ' f'{model_init["model_type"]}')
             logg.critical(strng)
             exit()
 
-        if model_init['tokenizer_type'] == "bert":
-            from transformers import BertTokenizerFast
-            self.tokenizer = BertTokenizerFast.from_pretrained(
-                'bert-large-uncased')
-        else:
-            strng = ('unknown tokenizer_type: '
-                     f'{model_init["tokenizer_type"]}')
-            logg.critical(strng)
-            exit()
+    def get_numClasses(self) -> int:
+        return self.num_classes
 
-    def params(self, optz_sched_params: Dict[str, Any],
-               app_specific: Dict[Any, Any]) -> None:
-        self.app_specific = app_specific
+    def params(self, optz_sched_params: Dict[str, Any]) -> None:
         self.optz_sched_params = optz_sched_params
         # Trainer('auto_lr_find': True...) requires self.lr
         self.lr = self.optz_sched_params['optz_params'][
             'lr'] if 'lr' in self.optz_sched_params['optz_params'] else None
-
-    def get_tokenizer(self):
-        return self.tokenizer
 
     def kludge(self, batch_size: Dict[str, int]):
         '''
@@ -178,7 +159,7 @@ class Model(LightningModule):
         #                   2).mean(1)
         output = self.classification_head_dropout(output)
         logits = self.classification_head(output)
-        loss = self.loss_fct(logits.view(-1, self.app_specific['num_classes']),
+        loss = self.loss_fct(logits.view(-1, self.num_classes),
                              batch['labels'].view(-1))
         return loss, logits
         # [0] => mean of losses from each example in batch; [1] => logits

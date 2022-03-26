@@ -7,91 +7,60 @@ from typing import List, Dict, Tuple, Any
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import pathlib
+import pickle
 
 logg = getLogger(__name__)
 
 
-class Dialog_dataset():
-    def __init__(self):
-        self.irrelevant_punctuations = [',', '.']
+def prepare_dataset(tokenizer, dataset_path: str) -> None:
+    dataset_raw_file = pathlib.Path(dataset_path).resolve(strict=True)
+    dirName = pathlib.Path(dataset_path).resolve(strict=True).parents[0]
+    fileName_noSuffix = pathlib.Path(dataset_path).stem
+    dataset_file = dirName.joinpath(f'{fileName_noSuffix}.df')
+    dataset_meta_file = dirName.joinpath(f'{fileName_noSuffix}.meta')
 
-    def load_dataset(self, tokenizer, dataset_path: str) -> None:
-        self.tokenizer = tokenizer
-        dirName = pathlib.Path(dataset_path).resolve(strict=True).parents[0]
-        fileName_noSuffix = pathlib.Path(dataset_path).stem
-        filePath = dirName.joinpath(f'{fileName_noSuffix}.df')
+    if dataset_file.exists() and dataset_meta_file.exists() and (
+            dataset_raw_file.stat().st_mtime < dataset_file.stat().st_mtime):
+        logg.info(f'Already existing {dataset_file}')
+        return
 
-        if filePath.exists():
-            logg.info(f'Loaded, already existing {filePath}')
-            self.df = pd.read_pickle(filePath)
-            return
+    df = pd.read_csv(dataset_path, encoding='unicode_escape')
 
-        self.df = pd.read_csv(dataset_path, encoding='unicode_escape')
+    # remove unneeded data
+    df = df.drop(columns=['POS'])
+    df = df[df.Tag.isin(["B-art", "I-art", "B-eve", "I-eve", "B-nat", "I-nat"])
+            == False]
 
-        # remove unneeded data
-        self.df = self.df.drop(columns=['POS'])
-        self.df = self.df[self.df.Tag.isin(
-            ["B-art", "I-art", "B-eve", "I-eve", "B-nat", "I-nat"]) == False]
+    # get a list of unique word-labels
+    unique_labels = list(df.Tag.unique())
+    # convert NaN, of sentence # column, to previous sentence #
+    df = df.fillna(method='ffill')
 
-        # get a list of unique word-labels
-        self.unique_labels = list(self.df.Tag.unique())
-        # convert NaN, of sentence # column, to previous sentence #
-        self.df = self.df.fillna(method='ffill')
+    # group words and tags of a sentence
+    # create new column called "sentence" which groups words of a sentence
+    df['sentence'] = df[['Sentence #', 'Word']].groupby(
+        ['Sentence #'])['Word'].transform(lambda x: ' '.join(x))
+    df = df.drop(columns=['Word'])
+    # create new column called "word_labels" which groups tags of sentence
+    df['word_labels'] = df[['Sentence #', 'Tag']].groupby(
+        ['Sentence #'])['Tag'].transform(lambda x: ' '.join(x))
+    df = df.drop(columns=['Tag'])
+    df = df.drop(columns=['Sentence #'])
 
-        # group words and tags of a sentence
-        # create new column called "sentence" which groups words of a sentence
-        self.df['sentence'] = self.df[['Sentence #', 'Word']].groupby(
-            ['Sentence #'])['Word'].transform(lambda x: ' '.join(x))
-        self.df = self.df.drop(columns=['Word'])
-        # create new column called "word_labels" which groups tags of sentence
-        self.df['word_labels'] = self.df[['Sentence #', 'Tag']].groupby(
-            ['Sentence #'])['Tag'].transform(lambda x: ' '.join(x))
-        self.df = self.df.drop(columns=['Tag'])
-        self.df = self.df.drop(columns=['Sentence #'])
+    # ***************check for problems in the dataset********************
+    # no duplicate sentences; first occurrence is not duplicate
+    #assert not df.duplicated(subset=['sentence'], keep='first').any()
+    # total number of duplicate sentences
+    #assert df.duplicated(subset=['sentence'], keep='first').sum()
+    # show all occurrences of duplicate sentences
+    #df[df.duplicated(subset=['sentence'], keep=False)]
 
-        # ***************check for problems in the dataset********************
-        # no duplicate sentences; first occurrence is not duplicate
-        #assert not self.df.duplicated(subset=['sentence'], keep='first').any()
-        # total number of duplicate sentences
-        #assert self.df.duplicated(subset=['sentence'], keep='first').sum()
-        # show all occurrences of duplicate sentences
-        #self.df[self.df.duplicated(subset=['sentence'], keep=False)]
+    # drop duplicate rows and reset the index
+    df.drop_duplicates(subset=['sentence'], keep='first', inplace=True)
+    df.reset_index(drop=True, inplace=True)
 
-        # drop duplicate rows and reset the index
-        #self.df = self.df.drop_duplicates().reset_index(drop=True)
-        self.df.drop_duplicates(subset=['sentence'],
-                                keep='first',
-                                inplace=True)
-        self.df.reset_index(drop=True, inplace=True)
-
-        # pre-tokenization processing of sentences
-        self.df['sentence'] = pd.Series(
-            map(self._pre_tokenization, self.df['sentence']))
-
-        # convert word_labels to token_labels_names
-        self.df['token_labels'] = pd.Series(
-            map(self._word_labels_to_token_labels_names, self.df['sentence'],
-                self.df['word_labels']))
-        self.df = self.df.drop(columns=['word_labels'])
-
-        # remove all rows that have None
-        self.df = self.df.dropna()
-        self.df.reset_index(drop=True, inplace=True)
-
-        # convert token-label names to numbers
-        def _token_labels_names2numbers(token_labels_names: List) -> List:
-            return [
-                self.unique_labels.index(token_label_name)
-                if token_label_name != '-100' else -100
-                for token_label_name in token_labels_names
-            ]
-
-        self.df['token_labels'] = pd.Series(
-            map(_token_labels_names2numbers, self.df['token_labels']))
-
-        self.df.to_pickle(filePath)
-
-    def _pre_tokenization(self, sentence: str) -> List:
+    # pre-tokenization processing of sentences
+    def _pre_tokenization(sentence: str) -> List:
         '''
         ************************************************************
         sentence.split() or tokenizer fail when sentence has both
@@ -104,7 +73,10 @@ class Dialog_dataset():
         assert sentence
         return sentence
 
-    def _word_labels_to_token_labels_names(self, sentence: List,
+    df['sentence'] = pd.Series(map(_pre_tokenization, df['sentence']))
+
+    # convert word_labels to token_labels_names
+    def _word_labels_to_token_labels_names(sentence: List,
                                            words_labls: str) -> List:
         '''
         ************************************************************
@@ -123,10 +95,9 @@ class Dialog_dataset():
             return None
         assert words_labels
         assert len(sentence) == len(words_labels)
-        tokens = self.tokenizer.convert_ids_to_tokens(
-            self.tokenizer(sentence, is_split_into_words=True)['input_ids'])
-        words_idxs = self.tokenizer(sentence,
-                                    is_split_into_words=True).word_ids()
+        tokens = tokenizer.convert_ids_to_tokens(
+            tokenizer(sentence, is_split_into_words=True)['input_ids'])
+        words_idxs = tokenizer(sentence, is_split_into_words=True).word_ids()
         assert len(tokens) == len(words_idxs)
 
         tokens_labels = []
@@ -155,43 +126,82 @@ class Dialog_dataset():
         assert len(tokens_labels) == len(tokens)
         return tokens_labels
 
-    def split_dataset(
-        self, split: Dict[str, int]
-    ) -> Tuple[Dict[str, Any], List[Dict[str, str]], List[Dict[str, str]],
-               List[Dict[str, str]]]:
-        assert split['train'] + split['val'] + split['test'] == 100
-        # Split dataset into train, val, test
-        if not split['train'] and split['test']:
-            # testing a dataset on a checkpoint file; no training
-            df_train, df_val, df_test, split['val'], split[
-                'test'] = None, None, self.df, 0, 100
-        else:
-            df_train, df_temp = train_test_split(self.df,
-                                                 shuffle=True,
-                                                 stratify=None,
-                                                 train_size=(split['train'] /
-                                                             100),
-                                                 random_state=42)
-            df_val, df_test = train_test_split(
-                df_temp,
-                shuffle=True,
-                stratify=None,
-                test_size=(split['test'] / (split['val'] + split['test'])),
-                random_state=42)
-            assert len(self.df) == len(df_train) + len(df_val) + len(df_test)
+    df['token_labels'] = pd.Series(
+        map(_word_labels_to_token_labels_names, df['sentence'],
+            df['word_labels']))
+    df = df.drop(columns=['word_labels'])
 
-        dataset_metadata = {
-            'dataset_info': {
-                'split': (split['train'], split['val'], split['test']),
-                'lengths':
-                (len(self.df), len(df_train) if df_train is not None else 0,
-                 len(df_val) if df_val is not None else 0,
-                 len(df_test) if df_test is not None else 0),
-                'num_labels': len(self.unique_labels)
-            },
-        }
+    # remove all rows that have None
+    df = df.dropna()
+    df.reset_index(drop=True, inplace=True)
 
-        return dataset_metadata, df_train.to_dict(
-            'records') if df_train is not None else 0, df_val.to_dict(
-                'records') if df_val is not None else 0, df_test.to_dict(
-                    'records') if df_test is not None else 0
+    # convert token-label names to numbers
+    def _token_labels_names2numbers(token_labels_names: List) -> List:
+        return [
+            unique_labels.index(token_label_name)
+            if token_label_name != '-100' else -100
+            for token_label_name in token_labels_names
+        ]
+
+    df['token_labels'] = pd.Series(
+        map(_token_labels_names2numbers, df['token_labels']))
+
+    df.to_pickle(dataset_file)
+    with dataset_meta_file.open('wb') as dmF:
+        pickle.dump(unique_labels, dmF, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def split_dataset(
+    dataset_path: str, split: Dict[str, int]
+) -> Tuple[Dict[str, Any], List[Dict[str, str]], List[Dict[str, str]],
+           List[Dict[str, str]]]:
+    assert split['train'] + split['val'] + split['test'] == 100
+
+    # retrieve data files
+    dirName = pathlib.Path(dataset_path).resolve(strict=True).parents[0]
+    fileName_noSuffix = pathlib.Path(dataset_path).stem
+    dataset_file = dirName.joinpath(f'{fileName_noSuffix}.df')
+    dataset_meta_file = dirName.joinpath(f'{fileName_noSuffix}.meta')
+    if (not dataset_file.exists()) or (not dataset_meta_file.exists()):
+        strng = ('Either one or both of following files do not exist: '
+                 '{dataset_file}, {dataset_meta_file}')
+        logg.critical(strng)
+        exit()
+    df = pd.read_pickle(dataset_file)
+    with dataset_meta_file.open('rb') as dmF:
+        unique_labels = pickle.load(dmF)
+
+    # Split dataset into train, val, test
+    if not split['train'] and split['test']:
+        # testing a dataset on a checkpoint file; no training
+        df_train, df_val, df_test, split['val'], split[
+            'test'] = None, None, df, 0, 100
+    else:
+        df_train, df_temp = train_test_split(df,
+                                             shuffle=True,
+                                             stratify=None,
+                                             train_size=(split['train'] / 100),
+                                             random_state=42)
+        df_val, df_test = train_test_split(
+            df_temp,
+            shuffle=True,
+            stratify=None,
+            test_size=(split['test'] / (split['val'] + split['test'])),
+            random_state=42)
+        assert len(df) == len(df_train) + len(df_val) + len(df_test)
+
+    dataset_metadata = {
+        'dataset_info': {
+            'split': (split['train'], split['val'], split['test']),
+            'lengths': (len(df), len(df_train) if df_train is not None else 0,
+                        len(df_val) if df_val is not None else 0,
+                        len(df_test) if df_test is not None else 0),
+            'num_classes':
+            len(unique_labels)
+        },
+    }
+
+    return dataset_metadata, df_train.to_dict(
+        'records') if df_train is not None else 0, df_val.to_dict(
+            'records') if df_val is not None else 0, df_test.to_dict(
+                'records') if df_test is not None else 0

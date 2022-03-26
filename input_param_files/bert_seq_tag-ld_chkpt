@@ -42,7 +42,6 @@ parameters for python-dictionary 'trainer'
 parameters for python-dictionary 'model_init'. Contents of this dict are replaced by corresponding checkpoint dict 
 - 
 {}
-#{'model_type': 'bert_large_uncased', 'tokenizer_type': 'bert'}
 
 
 parameters for python-dictionary 'ld_resume_chkpt'

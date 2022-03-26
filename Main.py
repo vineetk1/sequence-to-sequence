@@ -25,6 +25,7 @@ dictConfig(LOG_CONFIG)
 def main():
     # last file name in command-line has dictionaries of parameters
     params_file_path = argv[len(argv) - 1]
+    # get user-provided-parameters
     with open(params_file_path, 'r') as paramF:
         user_dicts = [
             dictionary for line in paramF if line[0] == '{'
@@ -48,39 +49,32 @@ def main():
 
     seed_everything(63)
 
-    if 'ld_chkpt' in user_dicts['ld_resume_chkpt'] and user_dicts[
-            'ld_resume_chkpt']['ld_chkpt'] is not None:
-        model = Model.load_from_checkpoint(
-            checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
-        dirPath = Path(user_dicts['ld_resume_chkpt']['ld_chkpt']).parents[1]
+    # change user-provided-parameters based on whether loading-from-checkpoint,
+    # or resuming-from-checkpoint, or starting from scratch
+    if 'ld_chkpt' in user_dicts['ld_resume_chkpt']:
+        dirPath = Path(user_dicts['ld_resume_chkpt']['ld_chkpt']).resolve(
+            strict=True).parents[1]
         chkpt_dicts = full_load(
             dirPath.joinpath('hyperparameters_used.yaml').read_text())
-        # chkpt_dicts has 2 additional dicts - app_specific_init, app_specific
-        assert len(user_dicts) == len(chkpt_dicts) - 2
+        assert len(user_dicts) == len(chkpt_dicts)
         # override  some user_dicts with chkpt_dicts
         for user_dict_k in user_dicts_keys:
             if (not user_dicts[user_dict_k] and
                     user_dict_k != 'ld_resume_chkpt') or\
                     user_dict_k == 'model_init':
                 user_dicts[user_dict_k] = chkpt_dicts[user_dict_k]
-        user_dicts['app_specific_init'] = chkpt_dicts['app_specific_init']
-        user_dicts['app_specific'] = chkpt_dicts['app_specific']
-        model.params(user_dicts['optz_sched'], user_dicts['app_specific'])
-    elif 'resume_from_checkpoint' in user_dicts[
-            'ld_resume_chkpt'] and user_dicts['ld_resume_chkpt'][
-                'resume_from_checkpoint'] is not None:
+    elif 'resume_from_checkpoint' in user_dicts['ld_resume_chkpt']:
         if 'resume_from_checkpoint' in user_dicts['trainer']:
             strng = (f'Remove "resume_from_checkpoint" from the "trainer" '
                      f'dictionary in the file {argv[1]}.')
             logg.critical(strng)
             exit()
         dirPath = Path(
-            user_dicts['ld_resume_chkpt']['resume_from_checkpoint']).parents[1]
+            user_dicts['ld_resume_chkpt']['resume_from_checkpoint']).resolve(
+                strict=True).parents[1]
         chkpt_dicts = full_load(
             dirPath.joinpath('hyperparameters_used.yaml').read_text())
-        # chkpt_dicts has 2 additional dicts - app_specific_init, app_specific
-        assert len(user_dicts) == len(chkpt_dicts) - 2
-
+        assert len(user_dicts) == len(chkpt_dicts)
         # override  some user_dicts with chkpt_dicts
         for user_dict_k in user_dicts_keys:
             if (not user_dicts[user_dict_k] and
@@ -88,22 +82,10 @@ def main():
                     user_dict_k == 'model_init' or\
                     user_dict_k == 'optz_sched':
                 user_dicts[user_dict_k] = chkpt_dicts[user_dict_k]
-        user_dicts['app_specific_init'] = chkpt_dicts['app_specific_init']
-        user_dicts['app_specific'] = chkpt_dicts['app_specific']
         _ = user_dicts['trainer'].pop('resume_from_checkpoint', None)
         user_dicts['trainer']['resume_from_checkpoint'] = user_dicts[
             'ld_resume_chkpt']['resume_from_checkpoint']
-
-        model = Model(user_dicts['model_init'],
-                      user_dicts['app_specific_init'])
-        model.params(user_dicts['optz_sched'], user_dicts['app_specific'])
     else:
-        app_specific_init, app_specific = Data.app_specific_params()
-        user_dicts['app_specific_init'] = app_specific_init
-        user_dicts['app_specific'] = app_specific
-        model = Model(user_dicts['model_init'],
-                      user_dicts['app_specific_init'])
-        model.params(user_dicts['optz_sched'], user_dicts['app_specific'])
         tb_subDir = ",".join([
             f'{item}={user_dicts["model_init"][item]}'
             for item in ['model_type', 'tokenizer_type']
@@ -111,6 +93,46 @@ def main():
         ])
         dirPath = Path('tensorboard_logs').joinpath(tb_subDir)
         dirPath.mkdir(parents=True, exist_ok=True)
+
+    # prepare and split dataset
+    if user_dicts["model_init"]['model'] == "bert" and user_dicts[
+            "model_init"]['tokenizer_type'] == "bert":
+        from transformers import BertTokenizerFast
+        tokenizer = BertTokenizerFast.from_pretrained(
+            user_dicts['model_init']['model_type'])
+    else:
+        strng = ('unknown model and tokenizer_type: '
+                 f'{user_dicts["model_init"]["model"]}'
+                 f'{user_dicts["model_init"]["tokenizer_type"]}')
+        logg.critical(strng)
+        exit()
+    data = Data(tokenizer,
+                batch_size=user_dicts['data']['batch_size']
+                if 'batch_size' in user_dicts['data'] else {})
+    if not ('dataset_path' in user_dicts['data']
+            and isinstance(user_dicts['data']['dataset_path'], str)):
+        logg.critical('Must specify a path to the dataset.')
+        exit()
+    data.prepare_data(dataset_path=user_dicts['data']['dataset_path'])
+    dataset_metadata = data.split_dataset(
+        dataset_path=user_dicts['data']['dataset_path'],
+        dataset_split=user_dicts['data']['dataset_split']
+        if 'dataset_split' in user_dicts['data'] else {},
+        no_training=True if 'no_training' in user_dicts['misc']
+        and user_dicts['misc']['no_training'] else False,
+        no_testing=True if 'no_testing' in user_dicts['misc']
+        and user_dicts['misc']['no_testing'] else False)
+
+    # initialize model
+    if 'ld_chkpt' in user_dicts['ld_resume_chkpt']:
+        model = Model.load_from_checkpoint(
+            checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
+        assert model.get_numClasses(
+        ) == dataset_metadata['dataset_info']['num_classes']
+    else:
+        model = Model(user_dicts['model_init'],
+                      dataset_metadata['dataset_info']['num_classes'])
+    model.params(user_dicts['optz_sched'])
 
     # create a directory to store all types of results
     new_version_num = max((int(dir.name.replace('version_', ''))
@@ -172,25 +194,9 @@ def main():
         logg.critical(strng)
         exit()
 
-    data = Data(tokenizer=model.get_tokenizer(),
-                batch_size=user_dicts['data']['batch_size']
-                if 'batch_size' in user_dicts['data'] else {})
-    if 'dataset_path' in user_dicts['data'] and isinstance(
-            user_dicts['data']['dataset_path'], str):
-        data.prepare_data(user_dicts['data']['dataset_path'])
-    else:
-        logg.critical('Must specify a path to the dataset.')
-        exit()
-    data.setup(dataset_split=user_dicts['data']['dataset_split']
-               if 'dataset_split' in user_dicts['data'] else {},
-               no_training=True if 'no_training' in user_dicts['misc']
-               and user_dicts['misc']['no_training'] else False,
-               no_testing=True if 'no_testing' in user_dicts['misc']
-               and user_dicts['misc']['no_testing'] else False)
-    dataset_metadata = data.get_dataset_metadata()
-
+    # training and testing
     model.kludge(dataset_metadata['batch_size'])
-    trainer.tune(model, datamodule=data)
+    #trainer.tune(model, datamodule=data)
     if not ('no_training' in user_dicts['misc']
             and user_dicts['misc']['no_training']):
         # Training: True, Testing: Don't care

@@ -31,13 +31,13 @@ parameters for python-dictionary 'data'
 
 parameters for python-dictionary 'trainer'
 - 
-{'gpus': 1, 'max_epochs': 15}
-#{'gpus': 1, 'auto_lr_find': False, 'auto_scale_batch_size': False}
+#{'gpus': 1, 'max_epochs': 15}
+{'gpus': 1, 'max_epochs': 1, 'auto_lr_find': True, 'auto_scale_batch_size': True}
 
 
 parameters for python-dictionary 'model_init'
 - 
-{'model_type': 'bert_large_uncased', 'tokenizer_type': 'bert'}
+{'model': 'bert', 'model_type': 'bert-large-uncased', 'tokenizer_type': 'bert'}
 
 
 parameters for python-dictionary 'ld_resume_chkpt'. This dictionary MUST be empty

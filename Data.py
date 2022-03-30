@@ -97,19 +97,23 @@ class Data(LightningDataModule):
         pass
 
     def _bert_collater(
-            self, examples: List[Dict[str, List]]) -> Dict[str, torch.Tensor]:
-        batch_texts, batch_labels = [], []
-        for example in examples:
-            batch_texts.append(example['sentence'])
-            batch_labels.append(example['token_labels'])
-
-        batch_model_inputs = self.tokenizer(text=batch_texts,
+            self, examples: List[List[List[Any]]]) -> Dict[str, torch.Tensor]:
+        batch_sentences = [example[0] for example in examples]
+        batch_model_inputs = self.tokenizer(text=batch_sentences,
                                             padding=True,
                                             truncation=True,
                                             is_split_into_words=True,
                                             return_tensors='pt',
                                             return_token_type_ids=True,
                                             return_attention_mask=True)
+
+        batch_token_labels_max_len = max(
+            [len(example[1]) for example in examples])
+        batch_token_labels = torch.LongTensor([
+            example[1] + [-100] *
+            (batch_token_labels_max_len - len(example[1]))
+            for example in examples
+        ])
 
         return {
             'model_inputs': {
@@ -120,7 +124,7 @@ class Data(LightningDataModule):
                 'token_type_ids':
                 batch_model_inputs['token_type_ids'].type(torch.LongTensor)
             },
-            'labels': torch.LongTensor(batch_labels)
+            'labels': batch_token_labels
         }
 
 

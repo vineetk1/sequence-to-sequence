@@ -23,25 +23,9 @@ class Model(LightningModule):
         # Trainer('auto_lr_find': True,...) requires self.lr
 
         if model_init['model'] == "bert":
-            from transformers import BertModel
-            self.model = BertModel.from_pretrained(model_init['model_type'])
-            class_head_dropout = model_init[
-                'class_head_dropout'] if 'class_head_dropout' in model_init\
-                else self.model.config.hidden_dropout_prob
-            self.classification_head_dropout = torch.nn.Dropout(
-                class_head_dropout)
-            self.classification_head = torch.nn.Linear(
-                self.model.config.hidden_size, num_classes)
-            self.num_classes = num_classes
-            self.classification_head.weight.data.normal_(
-                mean=0.0, std=self.model.config.initializer_range)
-            if self.classification_head.bias is not None:
-                self.classification_head.bias.data.zero_()
-            self.loss_fct = torch.nn.CrossEntropyLoss()
-        else:
-            strng = ('unknown model_type: ' f'{model_init["model_type"]}')
-            logg.critical(strng)
-            exit()
+            from transformers import BertForTokenClassification
+            self.model = BertForTokenClassification.from_pretrained(
+                model_init['model_type'], num_labels=num_classes)
 
     def get_numClasses(self) -> int:
         return self.num_classes

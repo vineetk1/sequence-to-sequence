@@ -46,6 +46,15 @@ def main():
                 'ld_resume_chkpt']:
         logg.critical('Cannot load- and resume-checkpoint at the same time')
         exit()
+    for k in ('no_training', 'no_testing'):
+        if k in user_dicts['misc']:
+            if not isinstance(user_dicts['misc'][k], bool):
+                strng = (f'value of "{k}" is not a boolean in misc dictionary '
+                         f'of file {argv[1]}.')
+                logg.critical(strng)
+                exit()
+        else:
+            user_dicts['misc'][k] = False
 
     seed_everything(63)
 
@@ -118,10 +127,8 @@ def main():
         dataset_path=user_dicts['data']['dataset_path'],
         dataset_split=user_dicts['data']['dataset_split']
         if 'dataset_split' in user_dicts['data'] else {},
-        no_training=True if 'no_training' in user_dicts['misc']
-        and user_dicts['misc']['no_training'] else False,
-        no_testing=True if 'no_testing' in user_dicts['misc']
-        and user_dicts['misc']['no_testing'] else False)
+        no_training=user_dicts['misc']['no_training'],
+        no_testing=user_dicts['misc']['no_testing'])
 
     # initialize model
     if 'ld_chkpt' in user_dicts['ld_resume_chkpt']:
@@ -148,8 +155,7 @@ def main():
     paramFile.write_text(dump(user_dicts))
 
     # setup Callbacks and Trainer
-    if not ('no_training' in user_dicts['misc']
-            and user_dicts['misc']['no_training']):
+    if not (user_dicts['misc']['no_training']):
         # Training: True, Testing: Don't care
         ckpt_filename = ""
         for item in user_dicts['optz_sched']:
@@ -181,8 +187,7 @@ def main():
             gradient_clip_val=0.5,
             callbacks=[checkpoint_callback, lr_monitor],
             **user_dicts['trainer'])
-    elif not ('no_testing' in user_dicts['misc']
-              and user_dicts['misc']['no_testing']):
+    elif not (user_dicts['misc']['no_testing']):
         # Training: False, Testing: True
         trainer = Trainer(logger=True,
                           checkpoint_callback=False,
@@ -197,21 +202,18 @@ def main():
     # training and testing
     model.kludge(dataset_metadata['batch_size'])
     #trainer.tune(model, datamodule=data)
-    if not ('no_training' in user_dicts['misc']
-            and user_dicts['misc']['no_training']):
+    if not (user_dicts['misc']['no_training']):
         # Training: True, Testing: Don't care
         trainer.fit(model,
                     train_dataloaders=data.train_dataloader(),
                     val_dataloaders=data.val_dataloader())
-        if not ('no_testing' in user_dicts['misc']
-                and user_dicts['misc']['no_testing']):
+        if not (user_dicts['misc']['no_testing']):
             if 'statistics' in user_dicts['misc'] and user_dicts['misc'][
                     'statistics']:
                 model.set_statistics(dataset_metadata, dirPath)
             trainer.test(ckpt_path='best', dataloaders=data.test_dataloader())
             model.clear_statistics()
-    elif not ('no_testing' in user_dicts['misc']
-              and user_dicts['misc']['no_testing']):
+    elif not (user_dicts['misc']['no_testing']):
         # Training: False, Testing: True
         if 'statistics' in user_dicts['misc'] and user_dicts['misc'][
                 'statistics']:

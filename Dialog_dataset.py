@@ -153,8 +153,8 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
 
 def split_dataset(
     dataset_path: str, split: Dict[str, int]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]], List[Dict[str, str]],
-           List[Dict[str, str]]]:
+) -> Tuple[Dict[str, Any], List[List[List[Any]]], List[List[List[Any]]],
+           List[List[List[Any]]]]:
     assert split['train'] + split['val'] + split['test'] == 100
 
     # retrieve data files
@@ -201,7 +201,7 @@ def split_dataset(
         },
     }
 
-    return dataset_metadata, df_train.to_dict(
-        'records') if df_train is not None else 0, df_val.to_dict(
-            'records') if df_val is not None else 0, df_test.to_dict(
-                'records') if df_test is not None else 0
+    return dataset_metadata, df_train.values.tolist(
+    ) if df_train is not None else 0, df_val.values.tolist(
+    ) if df_val is not None else 0, df_test.values.tolist(
+    ) if df_test is not None else 0

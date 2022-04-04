@@ -64,13 +64,21 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
         '''
         ************************************************************
         sentence.split() or tokenizer fail when sentence has both
-        apostrope and quotes without the escape characer; Test it out; Use
-        try-except
+        apostrope and quotes without the escape characer; How about using
+        three quotes? Test it out; Use try-except
         ************************************************************
         '''
-        # split sentence along white spaces into words
+        if not sentence:
+            # *** write code to drop this sentence
+            pass
+        # remove all punctuations except $#@%   Also split sentence along
+        # white spaces into words
+        #sentence = sentence.translate(
+        #    str.maketrans('', '', '!"&\'()*+,-./:;<=>?[\\]^_`{|}~')).split()
         sentence = sentence.split()
-        assert sentence
+        if not sentence:
+            # *** write code to drop this sentence
+            pass
         return sentence
 
     df['sentence'] = pd.Series(map(_pre_tokenization, df['sentence']))
@@ -91,10 +99,12 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
         '''
         words_labels = words_labls.split()
         if len(sentence) != len(words_labels):
-            print(f'\n{sentence}\n')
+            strng = (f'\n{len(sentence)} != {len(words_labels)}, '
+                     f'{sentence}, {words_labels}')
+            #logg.critical(strng)
+            #exit()
             return None
         assert words_labels
-        assert len(sentence) == len(words_labels)
         tokens = tokenizer.convert_ids_to_tokens(
             tokenizer(sentence, is_split_into_words=True)['input_ids'])
         words_idxs = tokenizer(sentence, is_split_into_words=True).word_ids()
@@ -110,18 +120,25 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
             # (1) words_idxs[token_idx] != words_idxs[token_idx-1] => first
             # token of a word
             # (2) words_idxs[token_idx] != words_idxs[token_idx+1] => last
-            # token of  a word
-            if words_idxs[token_idx] is None:
+            # token of a word
+            word_idx = words_idxs[token_idx]
+            word_label = words_labels[
+                word_idx] if word_idx is not None else None
+            prev_word_idx = words_idxs[token_idx - 1]
+            if word_idx is None:
                 # special-token (e.g. CLS, SEP, PAD) gets a label of -100
                 tokens_labels.append("-100")
-            elif words_idxs[token_idx] != words_idxs[token_idx - 1]:
+            elif word_idx != prev_word_idx:
+                # first token of a word gets the label of that word;
                 # no indexing error because words_idxs[token_idx-1=0] is
                 # always None and this case is handled by "if statement"
-                # first token of a word gets the label of that word
-                tokens_labels.append(words_labels[words_idxs[token_idx]])
-            else:
-                # if not first token then remaining tokens get label of "-100"
-                tokens_labels.append("-100")
+                tokens_labels.append(word_label)
+            else:  # word_idx == prev_word_idx
+                # if not first token then a remaining token of that word
+                if word_label[0] == 'O':
+                    tokens_labels.append('O')
+                else:  # word_label[0] == 'B' or word_label[0] == 'I'
+                    tokens_labels.append(f'I{word_label[1:]}')
 
         assert len(tokens_labels) == len(tokens)
         return tokens_labels
@@ -196,8 +213,9 @@ def split_dataset(
             'lengths': (len(df), len(df_train) if df_train is not None else 0,
                         len(df_val) if df_val is not None else 0,
                         len(df_test) if df_test is not None else 0),
-            'num_classes':
-            len(unique_labels)
+        },
+        'class_info': {
+            'names': unique_labels,
         },
     }
 

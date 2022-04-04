@@ -1,7 +1,10 @@
 Vineet Kumar, sioom.ai
 
-This input file has user-settable hyper-parameters for training and testing
-   a model.
+This input file has user-settable hyper-parameters to resume training of
+   a checkpointed model. Testing is optional
+Use Case: A user stops training for any reason and then later resumes it. Training
+   can be stopped through the keystroke ctrl-c or by using appropriate
+   hyperparameters.
 
 Note the following:
 	(1) This file name should be last in the command-line.
@@ -10,21 +13,22 @@ Note the following:
 	(4) All the dictionaries MUST be present even if they are empty
 	(5) Unless specified, if a dictionary is empty, its contents will be replaced by the 
 	    corresponding dictionary from the checkpoint file that is loaded
+	(6) Some dicts -- such as misc -- must not be empty
 
 Command-line:
 -------------
 python3 Main.py input_param_files/bert_seq_tag-res_from_chkpt 
 
 
-parameters for python-dictionary 'misc'
+parameters for python-dictionary 'misc'. ***Must specify the contents of this dict***
 -
-{}
-#{'save_top_k': 2, 'no_testing': False, 'statistics': True}
+{'save_top_k': 2, 'no_testing': False, 'statistics': True}
 
 
-parameters for python-dictionary 'optz_sched'. Contents of this dict are replaced by corresponding checkpoint dict 
+parameters for python-dictionary 'optz_sched'. ***Contents of this dict are replaced by corresponding checkpoint dict*** 
 - 
 {}
+
 
 parameters for python-dictionary 'data'
 - 
@@ -34,15 +38,14 @@ parameters for python-dictionary 'data'
 
 parameters for python-dictionary 'trainer'
 - 
-#{}
-{'gpus': 1, 'max_epochs': 2}
+{'gpus': 1, 'max_epochs': 3}
 
 
-parameters for python-dictionary 'model_init'. Contents of this dict are replaced by corresponding checkpoint dict 
+parameters for python-dictionary 'model_init'. ***Contents of this dict are replaced by corresponding checkpoint dict*** 
 - 
 {}
 
 
-parameters for python-dictionary 'ld_resume_chkpt'
+parameters for python-dictionary 'ld_resume_chkpt'. ***Must specify the contents of this dict***
 - 
-{'resume_from_checkpoint': 'tensorboard_logs/model_type=bert_large_uncased,tokenizer_type=bert/version_0/version_0/checkpoints/last.ckpt'}
+{'resume_from_checkpoint': 'tensorboard_logs/model=bert,model_type=bert-large-uncased,tokenizer_type=bert/version_0/checkpoints/optz=Adam,lr=2e-05,lr_sched=ReduceLROnPlateau,mode=min,patience=0,factor=0.5,epoch=01-val_loss=0.11559.ckpt'}

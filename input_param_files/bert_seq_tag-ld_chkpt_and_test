@@ -1,7 +1,7 @@
 Vineet Kumar, sioom.ai
 
-This input file has user-settable hyper-parameters for training and testing
-   a model.
+This input file has user-settable hyper-parameters for loading a model from a checkpoint
+   file and then testing the model.
 
 Note the following:
 	(1) This file name should be last in the command-line.
@@ -10,28 +10,29 @@ Note the following:
 	(4) All the dictionaries MUST be present even if they are empty
 	(5) Unless specified, if a dictionary is empty, its contents will be replaced by the 
 	    corresponding dictionary from the checkpoint file that is loaded
+	(6) Some dicts -- such as misc, ld_resume_chkpt -- must not be empty
 
 Command-line:
 -------------
 python3 Main.py input_param_files/bert_seq_tag-ld_chkpt_and_test 
 
 
-parameters for python-dictionary 'misc'
+parameters for python-dictionary 'misc'. ***Must specify the contents of this dict***
 -
 {'no_training': True, 'no_testing': False, 'statistics': True}
 
 
-parameters for python-dictionary 'optz_sched'
+parameters for python-dictionary 'optz_sched'. ***This dict is not used***
 - 
 {}
 
 
-parameters for python-dictionary 'data'
+parameters for python-dictionary 'data'. 
 - 
-{'default_format_path': 'data/customer_chat_sample.csv', 'batch_size': {'train': None, 'val': None, 'test': 10}, 'dataset_split': {'train': 80, 'val': 10, 'test': 10}} 
+{}
 
 
-parameters for python-dictionary 'trainer'
+parameters for python-dictionary 'trainer'. 
 - 
 {'gpus': 1}
 
@@ -41,6 +42,6 @@ parameters for python-dictionary 'model_init'. Contents of this dict are replace
 {}
 
 
-parameters for python-dictionary 'ld_resume_chkpt'
+parameters for python-dictionary 'ld_resume_chkpt'. ***Must specify the contents of this dict***
 - 
-{'ld_chkpt': 'tensorboard_logs/model_type=bert_large_uncased,tokenizer_type=bert/version_0/checkpoints/last.ckpt'}
+{'ld_chkpt': 'tensorboard_logs/model=bert,model_type=bert-large-uncased,tokenizer_type=bert/version_0/checkpoints/optz=Adam,lr=2e-05,lr_sched=ReduceLROnPlateau,mode=min,patience=0,factor=0.5,epoch=01-val_loss=0.11559.ckpt'}

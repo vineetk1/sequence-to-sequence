@@ -1,6 +1,6 @@
 Vineet Kumar, sioom.ai
 
-This input file has user-settable hyper-parameters for training and testing
+This input file has user-settable hyper-parameters for training and/or testing
    a model.
 
 Note the following:
@@ -32,7 +32,7 @@ parameters for python-dictionary 'data'
 parameters for python-dictionary 'trainer'
 - 
 #{'gpus': 1, 'max_epochs': 15}
-{'gpus': 1, 'max_epochs': 1, 'auto_lr_find': True, 'auto_scale_batch_size': True}
+{'gpus': 1, 'max_epochs': 3, 'auto_lr_find': True, 'auto_scale_batch_size': True}
 
 
 parameters for python-dictionary 'model_init'

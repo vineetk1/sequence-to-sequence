@@ -14,6 +14,7 @@ from sys import argv
 import collections.abc
 from pathlib import Path
 from yaml import dump, full_load
+from typing import Dict
 from logging import getLogger
 from utils.log_configuration import LOG_CONFIG
 from logging.config import dictConfig
@@ -41,20 +42,7 @@ def main():
         logg.critical(strng)
         exit()
     user_dicts = {k: v for k, v in zip(user_dicts_keys, user_dicts)}
-    if 'ld_chkpt' in user_dicts[
-            'ld_resume_chkpt'] and 'resume_chkpt' in user_dicts[
-                'ld_resume_chkpt']:
-        logg.critical('Cannot load- and resume-checkpoint at the same time')
-        exit()
-    for k in ('no_training', 'no_testing'):
-        if k in user_dicts['misc']:
-            if not isinstance(user_dicts['misc'][k], bool):
-                strng = (f'value of "{k}" is not a boolean in misc dictionary '
-                         f'of file {argv[1]}.')
-                logg.critical(strng)
-                exit()
-        else:
-            user_dicts['misc'][k] = False
+    verify_and_change_user_provided_parameters(user_dicts)
 
     seed_everything(63)
 
@@ -66,62 +54,50 @@ def main():
         chkpt_dicts = full_load(
             dirPath.joinpath('hyperparameters_used.yaml').read_text())
         assert len(user_dicts) == len(chkpt_dicts)
-        # override  some user_dicts with chkpt_dicts
+        # override  certain user_dicts with chkpt_dicts; also if
+        # user_dicts[user_dict_k] is empty then replace its content by
+        # corresponding chkpt_dicts
         for user_dict_k in user_dicts_keys:
-            if (not user_dicts[user_dict_k] and
-                    user_dict_k != 'ld_resume_chkpt') or\
-                    user_dict_k == 'model_init':
+            if ((not user_dicts[user_dict_k]) and
+                (user_dict_k != 'ld_resume_chkpt') and
+                (user_dict_k != 'misc') and
+                (user_dict_k != 'optz_sched')) or (user_dict_k
+                                                   == 'model_init'):
                 user_dicts[user_dict_k] = chkpt_dicts[user_dict_k]
     elif 'resume_from_checkpoint' in user_dicts['ld_resume_chkpt']:
-        if 'resume_from_checkpoint' in user_dicts['trainer']:
-            strng = (f'Remove "resume_from_checkpoint" from the "trainer" '
-                     f'dictionary in the file {argv[1]}.')
-            logg.critical(strng)
-            exit()
         dirPath = Path(
             user_dicts['ld_resume_chkpt']['resume_from_checkpoint']).resolve(
                 strict=True).parents[1]
         chkpt_dicts = full_load(
             dirPath.joinpath('hyperparameters_used.yaml').read_text())
         assert len(user_dicts) == len(chkpt_dicts)
-        # override  some user_dicts with chkpt_dicts
+        # override  certain user_dicts with chkpt_dicts; also if
+        # user_dicts[user_dict_k] is empty then replace its content by
+        # corresponding chkpt_dicts
         for user_dict_k in user_dicts_keys:
-            if (not user_dicts[user_dict_k] and
-                    user_dict_k != 'ld_resume_chkpt') or\
-                    user_dict_k == 'model_init' or\
-                    user_dict_k == 'optz_sched':
+            if ((not user_dicts[user_dict_k]) and
+                (user_dict_k != 'ld_resume_chkpt') and
+                (user_dict_k != 'misc')) or (user_dict_k == 'model_init') or (
+                    user_dict_k == 'optz_sched'):
                 user_dicts[user_dict_k] = chkpt_dicts[user_dict_k]
-        _ = user_dicts['trainer'].pop('resume_from_checkpoint', None)
         user_dicts['trainer']['resume_from_checkpoint'] = user_dicts[
             'ld_resume_chkpt']['resume_from_checkpoint']
     else:
         tb_subDir = ",".join([
             f'{item}={user_dicts["model_init"][item]}'
-            for item in ['model_type', 'tokenizer_type']
+            for item in ['model', 'model_type', 'tokenizer_type']
             if item in user_dicts['model_init']
         ])
         dirPath = Path('tensorboard_logs').joinpath(tb_subDir)
         dirPath.mkdir(parents=True, exist_ok=True)
 
     # prepare and split dataset
-    if user_dicts["model_init"]['model'] == "bert" and user_dicts[
-            "model_init"]['tokenizer_type'] == "bert":
-        from transformers import BertTokenizerFast
-        tokenizer = BertTokenizerFast.from_pretrained(
-            user_dicts['model_init']['model_type'])
-    else:
-        strng = ('unknown model and tokenizer_type: '
-                 f'{user_dicts["model_init"]["model"]}'
-                 f'{user_dicts["model_init"]["tokenizer_type"]}')
-        logg.critical(strng)
-        exit()
+    from transformers import BertTokenizerFast
+    tokenizer = BertTokenizerFast.from_pretrained(
+        user_dicts['model_init']['model_type'])
     data = Data(tokenizer,
                 batch_size=user_dicts['data']['batch_size']
                 if 'batch_size' in user_dicts['data'] else {})
-    if not ('dataset_path' in user_dicts['data']
-            and isinstance(user_dicts['data']['dataset_path'], str)):
-        logg.critical('Must specify a path to the dataset.')
-        exit()
     data.prepare_data(dataset_path=user_dicts['data']['dataset_path'])
     dataset_metadata = data.split_dataset(
         dataset_path=user_dicts['data']['dataset_path'],
@@ -134,11 +110,9 @@ def main():
     if 'ld_chkpt' in user_dicts['ld_resume_chkpt']:
         model = Model.load_from_checkpoint(
             checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
-        assert model.get_numClasses(
-        ) == dataset_metadata['dataset_info']['num_classes']
     else:
         model = Model(user_dicts['model_init'],
-                      dataset_metadata['dataset_info']['num_classes'])
+                      len(dataset_metadata['class_info']['names']))
     model.params(user_dicts['optz_sched'])
 
     # create a directory to store all types of results
@@ -203,28 +177,77 @@ def main():
     model.kludge(dataset_metadata['batch_size'])
     #trainer.tune(model, datamodule=data)
     if not (user_dicts['misc']['no_training']):
-        # Training: True, Testing: Don't care
+        # Training: True
         trainer.fit(model,
                     train_dataloaders=data.train_dataloader(),
                     val_dataloaders=data.val_dataloader())
-        if not (user_dicts['misc']['no_testing']):
-            if 'statistics' in user_dicts['misc'] and user_dicts['misc'][
-                    'statistics']:
-                model.set_statistics(dataset_metadata, dirPath)
-            trainer.test(ckpt_path='best', dataloaders=data.test_dataloader())
-            model.clear_statistics()
-    elif not (user_dicts['misc']['no_testing']):
-        # Training: False, Testing: True
-        if 'statistics' in user_dicts['misc'] and user_dicts['misc'][
-                'statistics']:
+    if not (user_dicts['misc']['no_testing']):
+        # Testing: True
+        if user_dicts['misc']['statistics']:
             model.set_statistics(dataset_metadata, dirPath)
-        trainer.test(model, dataloaders=data.test_dataloader())
+        if not (user_dicts['misc']['no_training']):
+            # Training: True; auto loads checkpoint file with lowest val loss
+            trainer.test(dataloaders=data.test_dataloader())
+        else:
+            trainer.test(model, dataloaders=data.test_dataloader())
         model.clear_statistics()
-    else:
-        # Training: False, Testing: False
-        logg.critical('Bug in the Logic')
-        exit()
     logg.info(f"Results and other information is at the directory: {dirPath}")
+
+
+def verify_and_change_user_provided_parameters(user_dicts: Dict):
+    if 'ld_chkpt' in user_dicts[
+            'ld_resume_chkpt'] and 'resume_chkpt' in user_dicts[
+                'ld_resume_chkpt']:
+        logg.critical('Cannot load- and resume-checkpoint at the same time')
+        exit()
+
+    if 'resume_from_checkpoint' in user_dicts[
+            'ld_resume_chkpt'] and 'resume_from_checkpoint' in user_dicts[
+                'trainer']:
+        strng = (f'Remove "resume_from_checkpoint" from the "trainer" '
+                 f'dictionary in the file {argv[1]}.')
+        logg.critical(strng)
+        exit()
+
+    for k in ('no_training', 'no_testing'):
+        if k in user_dicts['misc']:
+            if not isinstance(user_dicts['misc'][k], bool):
+                strng = (f'value of "{k}" must be a boolean in misc dictionary '
+                         f'of file {argv[1]}.')
+                logg.critical(strng)
+                exit()
+        else:
+            user_dicts['misc'][k] = False
+
+    if user_dicts['misc']['no_training'] and not user_dicts['misc'][
+            'no_testing'] and 'ld_chkpt' not in user_dicts['ld_resume_chkpt']:
+        strng = ('Path to a checkpoint file must be specified if  '
+                 'no-training but testing.')
+        logg.critical(strng)
+        exit()
+
+    if 'statistics' in user_dicts['misc']:
+        if not isinstance(user_dicts['misc']['statistics'], bool):
+            strng = (f'value of "statistics" is not a boolean in misc '
+                     f'dictionary of file {argv[1]}.')
+            logg.critical(strng)
+            exit()
+    else:
+        user_dicts['misc']['statistics'] = False
+
+    if not user_dicts['ld_resume_chkpt']:
+        if user_dicts["model_init"]['model'] != "bert" or user_dicts[
+                "model_init"]['tokenizer_type'] != "bert":
+            strng = ('unknown model and tokenizer_type: '
+                     f'{user_dicts["model_init"]["model"]}'
+                     f'{user_dicts["model_init"]["tokenizer_type"]}')
+            logg.critical(strng)
+            exit()
+
+        if not ('dataset_path' in user_dicts['data']
+                and isinstance(user_dicts['data']['dataset_path'], str)):
+            logg.critical('Must specify a path to the dataset.')
+            exit()
 
 
 if __name__ == '__main__':

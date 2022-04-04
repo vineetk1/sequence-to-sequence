@@ -27,14 +27,12 @@ class Model(LightningModule):
             self.model = BertForTokenClassification.from_pretrained(
                 model_init['model_type'], num_labels=num_classes)
 
-    def get_numClasses(self) -> int:
-        return self.num_classes
-
     def params(self, optz_sched_params: Dict[str, Any]) -> None:
         self.optz_sched_params = optz_sched_params
         # Trainer('auto_lr_find': True...) requires self.lr
-        self.lr = self.optz_sched_params['optz_params'][
-            'lr'] if 'lr' in self.optz_sched_params['optz_params'] else None
+        self.lr = optz_sched_params['optz_params']['lr'] if (
+            'optz_params' in optz_sched_params) and (
+                'lr' in optz_sched_params['optz_params']) else None
 
     def kludge(self, batch_size: Dict[str, int]):
         '''
@@ -105,13 +103,9 @@ class Model(LightningModule):
                  prog_bar=True,
                  batch_size=self.batch_size['test'],
                  logger=True)
-        try:
-            if self.statistics:
-                self._statistics_step(actuals=batch['labels'].squeeze(1),
-                                      predictions=torch.argmax(logits, dim=1),
-                                      example_ids=batch['sentence_ids'])
-        except AttributeError:
-            pass
+        if self.statistics:
+            self._statistics_step(actuals=batch['labels'],
+                                  predictions=torch.argmax(logits, dim=-1))
         return loss
 
     def test_epoch_end(
@@ -121,33 +115,15 @@ class Model(LightningModule):
         # on TensorBoard, want to see x-axis in epochs (not steps=batches)
         self.logger.experiment.add_scalar('test_loss_epoch', avg_loss,
                                           self.current_epoch)
-        try:
-            if self.statistics:
-                self._statistics_end()
-        except AttributeError:
-            pass
+        if self.statistics:
+            self._statistics_end()
 
     def _run_model(self,
                    batch: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-        outputs = self.model(**batch['model_inputs'],
-                             output_hidden_states=True)
-        output = outputs[1]
-        # get last 4 layers;
-        # shape is torch.Size([# layer = 4, # batches, # tokens, # features]);
-        # last layer's index is 3,  which is the output layer
-        # output = torch.stack(outputs[2][-4:])
-        # output is a mean of 4 layers and mean of tokens
-        # output = (output.mean(0)).mean(1)
-        # output is a cat of features and mean of tokens
-        # output = torch.cat((output[0], output[1], output[2], output[3]),
-        #                   2).mean(1)
-        output = self.classification_head_dropout(output)
-        logits = self.classification_head(output)
-        loss = self.loss_fct(logits.view(-1, self.num_classes),
-                             batch['labels'].view(-1))
+        outputs = self.model(**batch['model_inputs'], labels=batch['labels'])
+        loss = outputs[0]
+        logits = outputs[1]
         return loss, logits
-        # [0] => mean of losses from each example in batch; [1] => logits
-        # return outputs[0], outputs[1]
 
     def configure_optimizers(self):
         opt_sch_params = copy.deepcopy(self.optz_sched_params)
@@ -222,21 +198,22 @@ class Model(LightningModule):
                          actuals: torch.Tensor,
                          example_ids: List[str] = None) -> None:
         for prediction, actual in zip(predictions, actuals):
-            self.confusion_matrix[prediction, actual] += 1
+            for predicted_token_label, actual_token_label in zip(
+                    prediction, actual):
+                if actual_token_label != -100:
+                    self.confusion_matrix[predicted_token_label,
+                                          actual_token_label] += 1
 
     def _statistics_end(self) -> None:
-        assert self.confusion_matrix.shape[0] == self.confusion_matrix.shape[1]
         epsilon = 1E-9
         precision = self.confusion_matrix.diag() / (
             self.confusion_matrix.sum(1) + epsilon)
         recall = self.confusion_matrix.diag() / (self.confusion_matrix.sum(0) +
                                                  epsilon)
-        f1 = 2 * ((precision * recall) / (precision + recall + epsilon))
-        f1_avg = f1.sum() / f1.shape[0]
-        test_classes_lengths = torch.LongTensor(
-            list(self.dataset_meta["class_info"]["test_lengths"].values()))
-        f1_wgt = (
-            (f1 * test_classes_lengths).sum()) / test_classes_lengths.sum()
+        f1 = (2 * precision * recall) / (precision + recall + epsilon)
+        f1_avg = f1.sum() / f1.shape[0]  # macro average
+        f1_wgt = ((f1 * self.confusion_matrix.sum(0)).sum()
+                  ) / self.confusion_matrix.sum()
 
         from sys import stdout
         from contextlib import redirect_stdout
@@ -263,7 +240,7 @@ class Model(LightningModule):
                             self.dataset_meta["dataset_info"]["lengths"][1:],
                             self.dataset_meta["batch_size"].values()):
                         print(f'{len/batch_size: .2f}', end="")
-
+                    '''
                     print(
                         '\n\nAbout Class distribution: original, train, validation, test'
                     )
@@ -287,6 +264,21 @@ class Model(LightningModule):
                             f'{self.dataset_meta["class_info"]["test_lengths"][class_name]}'
                             f' examples, '
                             f'{self.dataset_meta["class_info"]["test_prop"][class_name]: .4f}'
+                            f' distribution')
+                        print(strng)
+                    '''
+
+                    print('\nAbout Test dataset:')
+                    num_of_token_labels = self.confusion_matrix.sum(0)
+                    prop_of_token_labels = self.confusion_matrix.sum(
+                        0) / self.confusion_matrix.sum()
+                    for class_num, class_name in enumerate(
+                            self.dataset_meta['class_info']['names']):
+                        strng = (
+                            f' Class {class_num}, {class_name}, '
+                            f'{num_of_token_labels[class_num].item()}'
+                            f' token labels, '
+                            f'{prop_of_token_labels[class_num].item(): .4f}'
                             f' distribution')
                         print(strng)
 

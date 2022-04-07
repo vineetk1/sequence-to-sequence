@@ -112,7 +112,7 @@ def main():
             checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
     else:
         model = Model(user_dicts['model_init'],
-                      len(dataset_metadata['class_info']['names']))
+                      len(dataset_metadata['token-labels -> number:name']))
     model.params(user_dicts['optz_sched'])
 
     # create a directory to store all types of results
@@ -174,8 +174,7 @@ def main():
         exit()
 
     # training and testing
-    model.kludge(dataset_metadata['batch_size'])
-    #trainer.tune(model, datamodule=data)
+    trainer.tune(model, datamodule=data)
     if not (user_dicts['misc']['no_training']):
         # Training: True
         trainer.fit(model,
@@ -212,8 +211,9 @@ def verify_and_change_user_provided_parameters(user_dicts: Dict):
     for k in ('no_training', 'no_testing'):
         if k in user_dicts['misc']:
             if not isinstance(user_dicts['misc'][k], bool):
-                strng = (f'value of "{k}" must be a boolean in misc dictionary '
-                         f'of file {argv[1]}.')
+                strng = (
+                    f'value of "{k}" must be a boolean in misc dictionary '
+                    f'of file {argv[1]}.')
                 logg.critical(strng)
                 exit()
         else:

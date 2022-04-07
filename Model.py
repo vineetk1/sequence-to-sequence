@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Union, Tuple
 import pathlib
 from importlib import import_module
 import copy
+import textwrap
 
 logg = getLogger(__name__)
 
@@ -34,19 +35,6 @@ class Model(LightningModule):
             'optz_params' in optz_sched_params) and (
                 'lr' in optz_sched_params['optz_params']) else None
 
-    def kludge(self, batch_size: Dict[str, int]):
-        '''
-        Lightning gives this incorrect warning "/home/vin/.local/lib/python3.8/
-        site-packages/pytorch_lightning/utilities/data.py:59: UserWarning:
-        Trying to infer the `batch_size` from an ambiguous collection. The
-        batch size we found is 4. To avoid any miscalculations, use
-        `self.log(..., batch_size=batch_size)`."
-        To shut this warning, batch_size is specified in self.log(....)
-        Future versions of Lightning will get rid of this warning. Then, remove
-        this method and reference of branch_size in self.log(...)
-        '''
-        self.batch_size = batch_size
-
     def forward(self):
         logg.debug('')
 
@@ -59,7 +47,6 @@ class Model(LightningModule):
                  on_step=False,
                  on_epoch=True,
                  prog_bar=True,
-                 batch_size=self.batch_size['train'],
                  logger=False)
         return loss
 
@@ -81,7 +68,6 @@ class Model(LightningModule):
                  on_step=False,
                  on_epoch=True,
                  prog_bar=True,
-                 batch_size=self.batch_size['val'],
                  logger=False)
         return loss
 
@@ -101,7 +87,6 @@ class Model(LightningModule):
                  on_step=True,
                  on_epoch=True,
                  prog_bar=True,
-                 batch_size=self.batch_size['test'],
                  logger=True)
         if self.statistics:
             self._statistics_step(actuals=batch['labels'],
@@ -188,7 +173,7 @@ class Model(LightningModule):
         self.statistics = True
         self.dataset_meta = dataset_meta
         self.dirPath = dirPath
-        num_classes = len(dataset_meta['class_info']['names'])
+        num_classes = len(dataset_meta['token-labels -> number:name'])
         self.confusion_matrix = torch.zeros(num_classes,
                                             num_classes,
                                             dtype=torch.int64)
@@ -205,6 +190,12 @@ class Model(LightningModule):
                                           actual_token_label] += 1
 
     def _statistics_end(self) -> None:
+        # Verify
+        for i, token_label_count in enumerate(self.confusion_matrix.sum(0)):
+            assert self.dataset_meta['test token-labels -> number:count'][
+                i] == token_label_count.item()
+
+        # Calculate
         epsilon = 1E-9
         precision = self.confusion_matrix.diag() / (
             self.confusion_matrix.sum(1) + epsilon)
@@ -215,6 +206,7 @@ class Model(LightningModule):
         f1_wgt = ((f1 * self.confusion_matrix.sum(0)).sum()
                   ) / self.confusion_matrix.sum()
 
+        # Print
         from sys import stdout
         from contextlib import redirect_stdout
         from pathlib import Path
@@ -225,69 +217,22 @@ class Model(LightningModule):
             with out.open("w") as results_file:
                 with redirect_stdout(stdout if out ==
                                      stdoutput else results_file):
-                    print('About Dataset: original, train, validation, test')
-                    print(
-                        f' Split: N/A, {self.dataset_meta["dataset_info"]["split"]}'
-                    )
-                    print(
-                        f' Lengths: {self.dataset_meta["dataset_info"]["lengths"]}'
-                    )
-                    print(
-                        f' Batch_sizes: N/A, {tuple(self.dataset_meta["batch_size"].values())}'
-                    )
-                    print(' Steps per epoch: N/A,', end="")
-                    for len, batch_size in zip(
-                            self.dataset_meta["dataset_info"]["lengths"][1:],
-                            self.dataset_meta["batch_size"].values()):
-                        print(f'{len/batch_size: .2f}', end="")
-                    '''
-                    print(
-                        '\n\nAbout Class distribution: original, train, validation, test'
-                    )
-                    for prop in [
-                            'dataset_prop', 'train_prop', 'val_prop',
-                            'test_prop'
-                    ]:
-                        if not self.dataset_meta["class_info"][prop]:
-                            print(' 0', end="")
-                        else:
-                            for num in list(self.dataset_meta["class_info"]
-                                            [prop].values()):
-                                print(f'{num: .4f}  ', end="")
-                        print('\n')
-
-                    print('About Test dataset:')
-                    for class_num, class_name in enumerate(
-                            self.dataset_meta['class_info']['names']):
-                        strng = (
-                            f' Class {class_num}, {class_name}, '
-                            f'{self.dataset_meta["class_info"]["test_lengths"][class_name]}'
-                            f' examples, '
-                            f'{self.dataset_meta["class_info"]["test_prop"][class_name]: .4f}'
-                            f' distribution')
-                        print(strng)
-                    '''
-
-                    print('\nAbout Test dataset:')
-                    num_of_token_labels = self.confusion_matrix.sum(0)
-                    prop_of_token_labels = self.confusion_matrix.sum(
-                        0) / self.confusion_matrix.sum()
-                    for class_num, class_name in enumerate(
-                            self.dataset_meta['class_info']['names']):
-                        strng = (
-                            f' Class {class_num}, {class_name}, '
-                            f'{num_of_token_labels[class_num].item()}'
-                            f' token labels, '
-                            f'{prop_of_token_labels[class_num].item(): .4f}'
-                            f' distribution')
-                        print(strng)
+                    for k, v in self.dataset_meta.items():
+                        print(k)
+                        print(
+                            textwrap.fill(f'{v}',
+                                          width=80,
+                                          initial_indent=4 * " ",
+                                          subsequent_indent=5 * " "))
 
                     print(
                         '\nConfusion matrix (prediction (rows) vs. actual (columns))='
                     )
                     print(f'{self.confusion_matrix}')
-                    print(f'Precision = {precision}')
-                    print(f'Recall = {recall}')
-                    print(f'F1 = {f1}')
-                    print(f'Average F1 = {f1_avg: .4f}')
-                    print(f'Weighted F1 = {f1_wgt: .4f}')
+
+                    print('precision, recall, f1')
+                    for x in (precision, recall, f1):
+                        print(x)
+
+                    print(f'average f1 = {f1_avg: .4f}')
+                    print(f'weighted f1 = {f1_wgt: .4f}')

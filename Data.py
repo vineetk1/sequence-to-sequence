@@ -37,15 +37,17 @@ class Data(LightningDataModule):
                 dataset_split[dataset_split_key] = 0
         dataset_metadata, train_data, val_data, test_data = split_dataset(
             dataset_path=dataset_path, split=dataset_split)
-        dataset_metadata['batch_size'] = {
+        dataset_metadata['batch size'] = {
             'train': self.batch_size,
             'val': self.batch_size_val,
             'test': self.batch_size_test
         }
         if not no_training:
+            assert train_data is not None and val_data is not None
             self.train_data = Data_set(train_data)
             self.valid_data = Data_set(val_data)
         if not no_testing:
+            assert test_data is not None
             self.test_data = Data_set(test_data)
         if no_training and no_testing:
             logg.debug('No Training and no Testing')
@@ -58,8 +60,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.train_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -72,8 +74,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.valid_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -86,8 +88,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.test_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -107,6 +109,12 @@ class Data(LightningDataModule):
                                             return_token_type_ids=True,
                                             return_attention_mask=True)
 
+        # Verify that number of tokens in sentence are equal to token-labels
+        for i, token_label_len in enumerate(
+                batch_model_inputs['attention_mask'].count_nonzero(-1)):
+            assert token_label_len.item() == len(examples[i][1])
+
+        # pad token-labels
         batch_token_labels_max_len = max(
             [len(example[1]) for example in examples])
         batch_token_labels = torch.LongTensor([

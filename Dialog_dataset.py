@@ -186,7 +186,7 @@ def split_dataset(
         exit()
     df = pd.read_pickle(dataset_file)
     with dataset_meta_file.open('rb') as dmF:
-        unique_labels = pickle.load(dmF)
+        token_labels_names = pickle.load(dmF)
 
     # Split dataset into train, val, test
     if not split['train'] and split['test']:
@@ -207,19 +207,47 @@ def split_dataset(
             random_state=42)
         assert len(df) == len(df_train) + len(df_val) + len(df_test)
 
+    train_data, val_data, test_data = (
+        df_train.values.tolist() if df_train is not None else None,
+        df_val.values.tolist() if df_val is not None else None,
+        df_test.values.tolist() if df_test is not None else None)
+
+    # create meta-data for the datasets
+    from collections import Counter
+
+    def token_labels_count(dataset):
+        if dataset is None:
+            return None
+        count = Counter()
+        for example in dataset:
+            for token_label in example[1]:
+                count[token_label] += 1
+        return dict(count)
+
+    trainValTest_tokenLabels_count = [
+        token_labels_count(dataset)
+        for dataset in (train_data, val_data, test_data)
+    ]
+
     dataset_metadata = {
-        'dataset_info': {
-            'split': (split['train'], split['val'], split['test']),
-            'lengths': (len(df), len(df_train) if df_train is not None else 0,
-                        len(df_val) if df_val is not None else 0,
-                        len(df_test) if df_test is not None else 0),
+        'dataset splits': {
+            'train': split['train'],
+            'val': split['val'],
+            'test': split['test']
         },
-        'class_info': {
-            'names': unique_labels,
+        'dataset lengths': {
+            'original': len(df),
+            'train': len(df_train) if df_train is not None else 0,
+            'val': len(df_val) if df_val is not None else 0,
+            'test': len(df_test) if df_test is not None else 0
         },
+        'token-labels -> number:name':
+        {k: v
+         for k, v in enumerate(token_labels_names)},
+        'train token-labels -> number:count':
+        trainValTest_tokenLabels_count[0],
+        'val token-labels -> number:count': trainValTest_tokenLabels_count[1],
+        'test token-labels -> number:count': trainValTest_tokenLabels_count[2]
     }
 
-    return dataset_metadata, df_train.values.tolist(
-    ) if df_train is not None else 0, df_val.values.tolist(
-    ) if df_val is not None else 0, df_test.values.tolist(
-    ) if df_test is not None else 0
+    return dataset_metadata, train_data, val_data, test_data

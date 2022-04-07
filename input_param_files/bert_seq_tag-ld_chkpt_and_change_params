@@ -38,7 +38,7 @@ parameters for python-dictionary 'data'.
 
 parameters for python-dictionary 'trainer'. 
 - 
-{'gpus': 1, 'max_epochs': 3, 'auto_lr_find': True, 'auto_scale_batch_size': True}
+{'gpus': 1, 'max_epochs': 3}
 
 
 parameters for python-dictionary 'model_init'. Contents of this dict are replaced by corresponding checkpoint dict 

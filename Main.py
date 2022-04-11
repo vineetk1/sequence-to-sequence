@@ -168,7 +168,7 @@ def main():
                           **user_dicts['trainer'])
     else:
         # Training: False, Testing: False
-        strng = ('User specified no-training and no-testing. Must do either'
+        strng = ('User specified no-training and no-testing. Must do either '
                  'training or testing or both.')
         logg.critical(strng)
         exit()

@@ -19,7 +19,7 @@ class Model(LightningModule):
     def __init__(self, model_init: dict, num_classes: int):
         super().__init__()
         # save parameters for future use of "loading a model from
-        # checkpoint" or "resuming training from checkpoint"
+        # checkpoint"
         self.save_hyperparameters()
         # Trainer('auto_lr_find': True,...) requires self.lr
 
@@ -173,38 +173,30 @@ class Model(LightningModule):
         self.statistics = True
         self.dataset_meta = dataset_meta
         self.dirPath = dirPath
-        num_classes = len(dataset_meta['token-labels -> number:name'])
-        self.confusion_matrix = torch.zeros(num_classes,
-                                            num_classes,
-                                            dtype=torch.int64)
+        self.y_true = []
+        self.y_pred = []
 
     def _statistics_step(self,
                          predictions: torch.Tensor,
                          actuals: torch.Tensor,
                          example_ids: List[str] = None) -> None:
-        for prediction, actual in zip(predictions, actuals):
+        for prediction, actual in zip(predictions.tolist(), actuals.tolist()):
+            y_true = []
+            y_pred = []
             for predicted_token_label, actual_token_label in zip(
                     prediction, actual):
                 if actual_token_label != -100:
-                    self.confusion_matrix[predicted_token_label,
-                                          actual_token_label] += 1
+                    y_true.append(
+                        self.dataset_meta['token-labels -> number:name']
+                        [actual_token_label])
+                    y_pred.append(
+                        self.dataset_meta['token-labels -> number:name']
+                        [predicted_token_label])
+            self.y_true.append(y_true)
+            self.y_pred.append(y_pred)
+            assert len(y_true) == len(y_pred)
 
     def _statistics_end(self) -> None:
-        # Verify
-        for i, token_label_count in enumerate(self.confusion_matrix.sum(0)):
-            assert self.dataset_meta['test token-labels -> number:count'][
-                i] == token_label_count.item()
-
-        # Calculate
-        epsilon = 1E-9
-        precision = self.confusion_matrix.diag() / (
-            self.confusion_matrix.sum(1) + epsilon)
-        recall = self.confusion_matrix.diag() / (self.confusion_matrix.sum(0) +
-                                                 epsilon)
-        f1 = (2 * precision * recall) / (precision + recall + epsilon)
-        f1_avg = f1.sum() / f1.shape[0]  # macro average
-        f1_wgt = ((f1 * self.confusion_matrix.sum(0)).sum()
-                  ) / self.confusion_matrix.sum()
 
         # Print
         from sys import stdout
@@ -225,14 +217,34 @@ class Model(LightningModule):
                                           initial_indent=4 * " ",
                                           subsequent_indent=5 * " "))
 
+                    from seqeval.scheme import IOB2
+                    from seqeval.metrics import accuracy_score
+                    from seqeval.metrics import precision_score
+                    from seqeval.metrics import recall_score
+                    from seqeval.metrics import f1_score
+                    from seqeval.metrics import classification_report
+                    print('Classification Report=', end="")
                     print(
-                        '\nConfusion matrix (prediction (rows) vs. actual (columns))='
-                    )
-                    print(f'{self.confusion_matrix}')
-
-                    print('precision, recall, f1')
-                    for x in (precision, recall, f1):
-                        print(x)
-
-                    print(f'average f1 = {f1_avg: .4f}')
-                    print(f'weighted f1 = {f1_wgt: .4f}')
+                        classification_report(self.y_true,
+                                              self.y_pred,
+                                              mode='strict',
+                                              scheme=IOB2))
+                    print('Precision=', end="")
+                    print(
+                        precision_score(self.y_true,
+                                        self.y_pred,
+                                        mode='strict',
+                                        scheme=IOB2))
+                    print('Recall=', end="")
+                    print(
+                        recall_score(self.y_true,
+                                     self.y_pred,
+                                     mode='strict',
+                                     scheme=IOB2))
+                    print('F1=', end="")
+                    print(
+                        f1_score(self.y_true,
+                                 self.y_pred,
+                                 mode='strict',
+                                 scheme=IOB2))
+                    print(f'Accuracy={accuracy_score(self.y_true, self.y_pred): .2f}')

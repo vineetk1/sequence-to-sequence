@@ -112,7 +112,7 @@ def main():
             checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
     else:
         model = Model(user_dicts['model_init'],
-                      len(dataset_metadata['token-labels -> number:name']))
+                      dataset_metadata['train token-labels -> number:count'])
     model.params(user_dicts['optz_sched'])
 
     # create a directory to store all types of results

@@ -11,12 +11,13 @@ import pathlib
 from importlib import import_module
 import copy
 import textwrap
+import math
 
 logg = getLogger(__name__)
 
 
 class Model(LightningModule):
-    def __init__(self, model_init: dict, num_classes: int):
+    def __init__(self, model_init: dict, tokenLabels_NumberCount: dict):
         super().__init__()
         # save parameters for future use of "loading a model from
         # checkpoint"
@@ -24,9 +25,34 @@ class Model(LightningModule):
         # Trainer('auto_lr_find': True,...) requires self.lr
 
         if model_init['model'] == "bert":
-            from transformers import BertForTokenClassification
-            self.model = BertForTokenClassification.from_pretrained(
-                model_init['model_type'], num_labels=num_classes)
+            from transformers import BertModel
+            # -1 => -100 is not a class
+            self.num_classes = len(tokenLabels_NumberCount) - 1
+            self.bertModel = BertModel.from_pretrained(
+                model_init['model_type'], add_pooling_layer=False)
+            self.classification_head_dropout = torch.nn.Dropout(
+                model_init['classification_head_dropout'] if
+                (('classification_head_dropout' in model_init) and
+                 (isinstance(model_init['classification_head_dropout'], float))
+                 ) else (self.bertModel.config.hidden_dropout_prob))
+            self.classification_head = torch.nn.Linear(
+                self.bertModel.config.hidden_size, self.num_classes)
+            stdv = 1. / math.sqrt(self.classification_head.weight.size(1))
+            self.classification_head.weight.data.uniform_(-stdv, stdv)
+            if self.classification_head.bias is not None:
+                self.classification_head.bias.data.uniform_(-stdv, stdv)
+            if 'loss_func_class_weights' in model_init and isinstance(
+                    model_init['loss_func_class_weights'], bool):
+                weights = torch.tensor([
+                    tokenLabels_NumberCount[number]
+                    for number in range(self.num_classes)
+                ])
+                weights = weights / weights.sum()
+                weights = 1.0 / weights
+                weights = weights / weights.sum()
+                self.loss_fct = torch.nn.CrossEntropyLoss(weight=weights)
+            else:
+                self.loss_fct = torch.nn.CrossEntropyLoss()
 
     def params(self, optz_sched_params: Dict[str, Any]) -> None:
         self.optz_sched_params = optz_sched_params
@@ -105,9 +131,11 @@ class Model(LightningModule):
 
     def _run_model(self,
                    batch: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-        outputs = self.model(**batch['model_inputs'], labels=batch['labels'])
-        loss = outputs[0]
-        logits = outputs[1]
+        outputs = self.bertModel(**batch['model_inputs'])
+        logits = self.classification_head(
+            self.classification_head_dropout(outputs[0]))
+        loss = self.loss_fct(logits.view(-1, self.num_classes),
+                             batch['labels'].view(-1))
         return loss, logits
 
     def configure_optimizers(self):
@@ -247,4 +275,6 @@ class Model(LightningModule):
                                  self.y_pred,
                                  mode='strict',
                                  scheme=IOB2))
-                    print(f'Accuracy={accuracy_score(self.y_true, self.y_pred): .2f}')
+                    print(
+                        f'Accuracy={accuracy_score(self.y_true, self.y_pred): .2f}'
+                    )

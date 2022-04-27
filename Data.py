@@ -60,8 +60,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.train_data),
             batch_sampler=None,
-            num_workers=6,
-            #num_workers=0,
+            #num_workers=6,
+            num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -74,8 +74,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.valid_data),
             batch_sampler=None,
-            num_workers=6,
-            #num_workers=0,
+            #num_workers=6,
+            num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -88,8 +88,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.test_data),
             batch_sampler=None,
-            num_workers=6,
-            #num_workers=0,
+            #num_workers=6,
+            num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -100,7 +100,11 @@ class Data(LightningDataModule):
 
     def _bert_collater(
             self, examples: List[List[List[Any]]]) -> Dict[str, torch.Tensor]:
-        batch_sentences = [example[0] for example in examples]
+        batch_ids, batch_sentences = [], []
+        for example in examples:
+            batch_ids.append(example[0])
+            batch_sentences.append(example[1])
+
         batch_model_inputs = self.tokenizer(text=batch_sentences,
                                             padding=True,
                                             truncation=True,
@@ -112,14 +116,14 @@ class Data(LightningDataModule):
         # Verify that number of tokens in sentence are equal to token-labels
         for i, token_label_len in enumerate(
                 batch_model_inputs['attention_mask'].count_nonzero(-1)):
-            assert token_label_len.item() == len(examples[i][1])
+            assert token_label_len.item() == len(examples[i][2])
 
         # pad token-labels
         batch_token_labels_max_len = max(
-            [len(example[1]) for example in examples])
+            [len(example[2]) for example in examples])
         batch_token_labels = torch.LongTensor([
-            example[1] + [-100] *
-            (batch_token_labels_max_len - len(example[1]))
+            example[2] + [-100] *
+            (batch_token_labels_max_len - len(example[2]))
             for example in examples
         ])
 
@@ -132,7 +136,8 @@ class Data(LightningDataModule):
                 'token_type_ids':
                 batch_model_inputs['token_type_ids'].type(torch.LongTensor)
             },
-            'labels': batch_token_labels
+            'labels': batch_token_labels,
+            'ids': tuple(batch_ids)
         }
 
 

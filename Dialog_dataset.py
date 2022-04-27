@@ -26,40 +26,26 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
 
     df = pd.read_csv(dataset_path, encoding='unicode_escape')
 
-    # remove unneeded data
-    df = df.drop(columns=['POS'])
-    df = df[df.Tag.isin(["B-art", "I-art", "B-eve", "I-eve", "B-nat", "I-nat"])
-            == False]
+    # give a name to 'Unnamed: 0' column; remove unneeded columns
+    df.rename(columns={'Unnamed: 0': 'dlg_id'}, inplace=True)
+    df = df.drop(
+        columns=['title_status', 'lot', 'state', 'country', 'condition'])
 
-    # get a list of unique word-labels
-    unique_labels = list(df.Tag.unique())
-    # convert NaN, of sentence # column, to previous sentence #
-    df = df.fillna(method='ffill')
+    # (1) generate sentences
+    def _multiple_words_to_sentence(price: int, brand: str, model: str,
+                                    year: int, mileage: float, color: str,
+                                    vin: str) -> List:
+        return f'{price}, {brand}, {model}, {year}, {mileage}, {color}, {vin}'
 
-    # group words and tags of a sentence
-    # create new column called "sentence" which groups words of a sentence
-    df['sentence'] = df[['Sentence #', 'Word']].groupby(
-        ['Sentence #'])['Word'].transform(lambda x: ' '.join(x))
-    df = df.drop(columns=['Word'])
-    # create new column called "word_labels" which groups tags of sentence
-    df['word_labels'] = df[['Sentence #', 'Tag']].groupby(
-        ['Sentence #'])['Tag'].transform(lambda x: ' '.join(x))
-    df = df.drop(columns=['Tag'])
-    df = df.drop(columns=['Sentence #'])
+    df["sentence"] = pd.Series(
+        map(_multiple_words_to_sentence, df["price"], df["brand"], df["model"],
+            df["year"], df["mileage"], df["color"], df["vin"]))
 
-    # ***************check for problems in the dataset********************
-    # no duplicate sentences; first occurrence is not duplicate
-    #assert not df.duplicated(subset=['sentence'], keep='first').any()
-    # total number of duplicate sentences
-    #assert df.duplicated(subset=['sentence'], keep='first').sum()
-    # show all occurrences of duplicate sentences
-    #df[df.duplicated(subset=['sentence'], keep=False)]
-
-    # drop duplicate rows and reset the index
+    # remove duplicates; it is ok to have missing values
     df.drop_duplicates(subset=['sentence'], keep='first', inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-    # pre-tokenization processing of sentences
+    # (2) pre-tokenization processing of sentences
     def _pre_tokenization(sentence: str) -> List:
         '''
         ************************************************************
@@ -68,24 +54,48 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
         three quotes? Test it out; Use try-except
         ************************************************************
         '''
-        if not sentence:
-            # *** write code to drop this sentence
-            pass
         # remove all punctuations except $#@%   Also split sentence along
         # white spaces into words
-        #sentence = sentence.translate(
-        #    str.maketrans('', '', '!"&\'()*+,-./:;<=>?[\\]^_`{|}~')).split()
-        sentence = sentence.split()
+        sentence = sentence.translate(
+            str.maketrans('', '', '!"&\'()*+,-./:;<=>?[\\]^_`{|}~')).split()
         if not sentence:
             # *** write code to drop this sentence
-            pass
+            exit()
         return sentence
 
-    df['sentence'] = pd.Series(map(_pre_tokenization, df['sentence']))
+    df['sentence_split_into_words'] = pd.Series(
+        map(_pre_tokenization, df['sentence']))
+    df = df.drop(columns=["sentence"])
 
-    # convert word_labels to token_labels_names
+    # (3) generate word-labels from words in sentence
+    def _word_labels_from_sentence(*args: Tuple) -> List:
+        labels_ordered = [
+            'price', 'brand', 'model', 'year', 'mileage', 'color', 'vin'
+        ]
+        words_labels = []
+        for i, words in enumerate(args):
+            # remove punctuations here ???
+            if not isinstance(words, str):
+                words_labels.append(f'B-{labels_ordered[i]}')
+            else:
+                first_word = True
+                for word in words.split():
+                    if first_word:
+                        first_word = False
+                        words_labels.append(f'B-{labels_ordered[i]}')
+                    else:
+                        words_labels.append(f'I-{labels_ordered[i]}')
+        return words_labels
+
+    df["word_labels"] = pd.Series(
+        map(_word_labels_from_sentence, df["price"], df["brand"], df["model"],
+            df["year"], df["mileage"], df["color"], df["vin"]))
+    df = df.drop(
+        columns=["price", "brand", "model", "year", "mileage", "color", "vin"])
+
+    # (4) convert word_labels to token_labels_names
     def _word_labels_to_token_labels_names(sentence: List,
-                                           words_labls: str) -> List:
+                                           words_labels: List) -> List:
         '''
         ************************************************************
         (1) sentence.split() or tokenizer fail when sentence has both
@@ -97,13 +107,11 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
             summary of history
         ************************************************************
         '''
-        words_labels = words_labls.split()
         if len(sentence) != len(words_labels):
             strng = (f'\n{len(sentence)} != {len(words_labels)}, '
                      f'{sentence}, {words_labels}')
-            #logg.critical(strng)
-            #exit()
-            return None
+            logg.critical(strng)
+            exit()
         assert words_labels
         tokens = tokenizer.convert_ids_to_tokens(
             tokenizer(sentence, is_split_into_words=True)['input_ids'])
@@ -144,18 +152,22 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
         return tokens_labels
 
     df['token_labels'] = pd.Series(
-        map(_word_labels_to_token_labels_names, df['sentence'],
-            df['word_labels']))
+        map(_word_labels_to_token_labels_names,
+            df['sentence_split_into_words'], df['word_labels']))
     df = df.drop(columns=['word_labels'])
 
-    # remove all rows that have None
-    df = df.dropna()
-    df.reset_index(drop=True, inplace=True)
+    # create a list of unique BIO2 labels
+    unique_bio2_label_names = []
+    for token_labels in df['token_labels']:
+        for token_label in token_labels:
+            if (token_label not in unique_bio2_label_names) and (token_label !=
+                                                                 "-100"):
+                unique_bio2_label_names.append(token_label)
 
     # convert token-label names to numbers
     def _token_labels_names2numbers(token_labels_names: List) -> List:
         return [
-            unique_labels.index(token_label_name)
+            unique_bio2_label_names.index(token_label_name)
             if token_label_name != '-100' else -100
             for token_label_name in token_labels_names
         ]
@@ -165,7 +177,9 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
 
     df.to_pickle(dataset_file)
     with dataset_meta_file.open('wb') as dmF:
-        pickle.dump(unique_labels, dmF, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(unique_bio2_label_names,
+                    dmF,
+                    protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def split_dataset(
@@ -186,7 +200,7 @@ def split_dataset(
         exit()
     df = pd.read_pickle(dataset_file)
     with dataset_meta_file.open('rb') as dmF:
-        token_labels_names = pickle.load(dmF)
+        unique_bio2_label_names = pickle.load(dmF)
 
     # Split dataset into train, val, test
     if not split['train'] and split['test']:
@@ -220,7 +234,7 @@ def split_dataset(
             return None
         count = Counter()
         for example in dataset:
-            for token_label in example[1]:
+            for token_label in example[2]:
                 count[token_label] += 1
         return dict(count)
 
@@ -229,25 +243,41 @@ def split_dataset(
         for dataset in (train_data, val_data, test_data)
     ]
 
+    trainValTest_tokenLabels_unseen = [
+        set(range(len(unique_bio2_label_names))).difference(set(sub_dataset_tokenLabels_count.keys()))
+        for sub_dataset_tokenLabels_count in (trainValTest_tokenLabels_count)
+    ]
+
     dataset_metadata = {
         'dataset splits': {
             'train': split['train'],
             'val': split['val'],
             'test': split['test']
         },
+
         'dataset lengths': {
             'original': len(df),
             'train': len(df_train) if df_train is not None else 0,
             'val': len(df_val) if df_val is not None else 0,
             'test': len(df_test) if df_test is not None else 0
         },
+
         'token-labels -> number:name':
         {k: v
-         for k, v in enumerate(token_labels_names)},
+         for k, v in enumerate(unique_bio2_label_names)},
+
         'train token-labels -> number:count':
         trainValTest_tokenLabels_count[0],
+
         'val token-labels -> number:count': trainValTest_tokenLabels_count[1],
-        'test token-labels -> number:count': trainValTest_tokenLabels_count[2]
+
+        'test token-labels -> number:count': trainValTest_tokenLabels_count[2],
+
+        'train unseen token-labels': trainValTest_tokenLabels_unseen[0],
+
+        'val unseen token-labels': trainValTest_tokenLabels_unseen[1],
+
+        'test unseen token-labels': trainValTest_tokenLabels_unseen[2]
     }
 
     return dataset_metadata, train_data, val_data, test_data

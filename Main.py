@@ -186,7 +186,7 @@ def main():
             model.set_statistics(dataset_metadata, dirPath)
         if not (user_dicts['misc']['no_training']):
             # Training: True; auto loads checkpoint file with lowest val loss
-            trainer.test(dataloaders=data.test_dataloader())
+            trainer.test(dataloaders=data.test_dataloader(), ckpt_path='best')
         else:
             trainer.test(model, dataloaders=data.test_dataloader())
         model.clear_statistics()

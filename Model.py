@@ -5,7 +5,6 @@ Vineet Kumar, sioom.ai
 from pytorch_lightning import LightningModule
 import torch
 from logging import getLogger
-from sys import exit
 from typing import Dict, List, Any, Union, Tuple
 import pathlib
 from importlib import import_module

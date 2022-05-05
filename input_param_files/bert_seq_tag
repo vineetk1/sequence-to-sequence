@@ -26,7 +26,7 @@ parameters for python-dictionary 'optz_sched'
 
 parameters for python-dictionary 'data'
 - 
-{'dataset_path': 'data/kaggle/ner_datasetreference.csv', 'batch_size': {'train': 4, 'val': 16, 'test': 32}, 'dataset_split': {'train': 80, 'val': 10, 'test': 10}} 
+{'dataset_path': 'data/kaggle/usa_cars/USA_cars_datasets.csv', 'batch_size': {'train': 4, 'val': 16, 'test': 32}, 'dataset_split': {'train': 65, 'val': 15, 'test': 20}} 
 
 
 parameters for python-dictionary 'trainer'

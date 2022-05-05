@@ -99,7 +99,7 @@ class Data(LightningDataModule):
         pass
 
     def _bert_collater(
-            self, examples: List[List[List[Any]]]) -> Dict[str, torch.Tensor]:
+            self, examples: List[List[List[Any]]]) -> Dict[str, Any]:
         batch_ids, batch_sentences = [], []
         for example in examples:
             batch_ids.append(example[0])

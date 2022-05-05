@@ -183,7 +183,7 @@ def main():
     if not (user_dicts['misc']['no_testing']):
         # Testing: True
         if user_dicts['misc']['statistics']:
-            model.set_statistics(dataset_metadata, dirPath)
+            model.set_statistics(dataset_metadata, dirPath, tokenizer)
         if not (user_dicts['misc']['no_training']):
             # Training: True; auto loads checkpoint file with lowest val loss
             trainer.test(dataloaders=data.test_dataloader(), ckpt_path='best')

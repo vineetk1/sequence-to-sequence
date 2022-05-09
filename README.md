@@ -4,7 +4,7 @@
 * Python version >= 3.8.10
 * PyTorch-Lightning version >= 1.6.3
 * Huggingface Transformers version >= 4.18.0
-* Tensorboard version >= 2.8.0
+* Tensorboard version >= 2.9.0
 * Pandas >= 1.4.0
 * Scikit-learn >= 1.0.2
 ## Installation

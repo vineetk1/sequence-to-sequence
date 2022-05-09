@@ -1,6 +1,6 @@
 # Sequence-tagging using Deep Learning
 ## Requirements
-* PyTorch version >= 1.10.2+cu113
+* PyTorch version >= 1.11.0+cu113
 * Python version >= 3.8.10
 * PyTorch-Lightning version >= 1.6.3
 * Huggingface Transformers version >= 4.17.0

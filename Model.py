@@ -53,7 +53,9 @@ class Model(LightningModule):
             else:
                 self.loss_fct = torch.nn.CrossEntropyLoss()
 
-    def params(self, optz_sched_params: Dict[str, Any]) -> None:
+    def params(self, optz_sched_params: Dict[str, Any],
+               batch_size: Dict[str, int]) -> None:
+        self.batch_size = batch_size  # needed to turn off lightning warning
         self.optz_sched_params = optz_sched_params
         # Trainer('auto_lr_find': True...) requires self.lr
         self.lr = optz_sched_params['optz_params']['lr'] if (
@@ -72,6 +74,7 @@ class Model(LightningModule):
                  on_step=False,
                  on_epoch=True,
                  prog_bar=True,
+                 batch_size=self.batch_size['train'],
                  logger=False)
         return loss
 
@@ -93,6 +96,7 @@ class Model(LightningModule):
                  on_step=False,
                  on_epoch=True,
                  prog_bar=True,
+                 batch_size=self.batch_size['val'],
                  logger=False)
         return loss
 
@@ -112,6 +116,7 @@ class Model(LightningModule):
                  on_step=True,
                  on_epoch=True,
                  prog_bar=True,
+                 batch_size=self.batch_size['test'],
                  logger=True)
         if self.statistics:
             self._statistics_step(predictions=torch.argmax(logits, dim=-1),

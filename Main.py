@@ -98,7 +98,7 @@ def main():
     data = Data(tokenizer,
                 batch_size=user_dicts['data']['batch_size']
                 if 'batch_size' in user_dicts['data'] else {})
-    data.prepare_data(dataset_path=user_dicts['data']['dataset_path'])
+    data.generate_data_labels(dataset_path=user_dicts['data']['dataset_path'])
     dataset_metadata = data.split_dataset(
         dataset_path=user_dicts['data']['dataset_path'],
         dataset_split=user_dicts['data']['dataset_split']
@@ -113,7 +113,7 @@ def main():
     else:
         model = Model(user_dicts['model_init'],
                       dataset_metadata['train token-labels -> number:count'])
-    model.params(user_dicts['optz_sched'])
+    model.params(user_dicts['optz_sched'], dataset_metadata['batch size'])
 
     # create a directory to store all types of results
     new_version_num = max((int(dir.name.replace('version_', ''))
@@ -164,7 +164,7 @@ def main():
     elif not (user_dicts['misc']['no_testing']):
         # Training: False, Testing: True
         trainer = Trainer(logger=True,
-                          checkpoint_callback=False,
+                          enable_checkpointing=False,
                           **user_dicts['trainer'])
     else:
         # Training: False, Testing: False

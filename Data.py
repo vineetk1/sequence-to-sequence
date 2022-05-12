@@ -26,7 +26,7 @@ class Data(LightningDataModule):
         # Trainer('auto_scale_batch_size': True...) requires self.batch_size
         self.batch_size = batch_size['train']
 
-    def prepare_data(self, dataset_path: str) -> None:
+    def generate_data_labels(self, dataset_path: str) -> None:
         prepare_dataset(self.tokenizer, dataset_path)
 
     def split_dataset(self, dataset_path: str, dataset_split: Dict[str, int],
@@ -60,8 +60,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.train_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -74,8 +74,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.valid_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -88,8 +88,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.test_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,

@@ -73,15 +73,15 @@ def main():
         assert len(user_dicts) == len(chkpt_dicts)
         # override  certain user_dicts with chkpt_dicts; also if
         # user_dicts[user_dict_k] is empty then replace its content by
-        # corresponding chkpt_dicts
+        # corresponding chkpt_dicts; NOTE that the assumption is that
+        # model_init and optz_sched values in chkpt_dicts are same as those in
+        # checkpoint file
         for user_dict_k in user_dicts_keys:
             if ((not user_dicts[user_dict_k]) and
                 (user_dict_k != 'ld_resume_chkpt') and
                 (user_dict_k != 'misc')) or (user_dict_k == 'model_init') or (
                     user_dict_k == 'optz_sched'):
                 user_dicts[user_dict_k] = chkpt_dicts[user_dict_k]
-        user_dicts['trainer']['resume_from_checkpoint'] = user_dicts[
-            'ld_resume_chkpt']['resume_from_checkpoint']
     else:
         tb_subDir = ",".join([
             f'{item}={user_dicts["model_init"][item]}'
@@ -113,6 +113,9 @@ def main():
     else:
         model = Model(user_dicts['model_init'],
                       dataset_metadata['train token-labels -> number:count'])
+    # batch_size is only provided to turn-off Lightning Warning;
+    # resume_from_checkpoint can provide a different batch_size which will
+    # conflict with this batch_size
     model.params(user_dicts['optz_sched'], dataset_metadata['batch size'])
 
     # create a directory to store all types of results
@@ -177,9 +180,13 @@ def main():
     trainer.tune(model, datamodule=data)
     if not (user_dicts['misc']['no_training']):
         # Training: True
-        trainer.fit(model,
-                    train_dataloaders=data.train_dataloader(),
-                    val_dataloaders=data.val_dataloader())
+        trainer.fit(
+            model=model,
+            ckpt_path=user_dicts['ld_resume_chkpt']['resume_from_checkpoint']
+            if 'resume_from_checkpoint' in user_dicts['ld_resume_chkpt'] else
+            None,
+            train_dataloaders=data.train_dataloader(),
+            val_dataloaders=data.val_dataloader())
     if not (user_dicts['misc']['no_testing']):
         # Testing: True
         if user_dicts['misc']['statistics']:

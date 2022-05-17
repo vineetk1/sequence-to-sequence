@@ -25,7 +25,7 @@ mkdir data
 ```
 2. Download a dataset in the *data* directory.       
 ## Saving all informtion and results of an experiment
-All information about the experiment is stored in a unique directory whose path starts with tensorboard_logs and ends with a unique version-number. Its contents consist of hparams.yaml, hyperperameters_used.yaml, test-results.txt, events.* files, and a checkpoints directory that has one or more checkpoint-files.
+All information about the experiment is stored in a unique directory whose path starts with tensorboard_logs and ends with a unique version-number. Its contents consist of hparams.yaml, hyperperameters_used.yaml, test-results.txt, dialogs_failed.txt, events.* files, and a checkpoints directory that has one or more checkpoint files.
 ## Train, validate, and test a model
 Following command trains a model, saves the last checkpoint plus checkpoints that have the lowest validation loss, runs the test dataset on the checkpointed model with the lowest validation loss, and outputs the results of the test:
 ```
@@ -38,7 +38,7 @@ During testing, the results are sent to the standard-output, and also saved in t
 ## Resume training, validation, and testing a model with same hyper-parameters
 Resume training a checkpoint model with the same model- and training-states by using the following command:
 ```
-python3 Main.py input_param_files/bert_seq_tag-res_from_chkpt
+python3 Main.py input_param_files/bert_seq_tag-resume_from_chkpt
 ```
 The user-settable hyper-parameters are in the file *input_param_files/bert_seq_tag-res_from_chkpt*.  An explanation on the contents of this file is at *input_param_files/README.md*.
 ## Change hyper-parameters and continue training, validation, and testing a model

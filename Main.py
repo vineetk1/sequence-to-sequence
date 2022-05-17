@@ -88,7 +88,8 @@ def main():
             for item in ['model', 'model_type', 'tokenizer_type']
             if item in user_dicts['model_init']
         ])
-        dirPath = Path('tensorboard_logs').joinpath(tb_subDir)
+        dirPath = Path('tensorboard_logs').joinpath(tb_subDir).resolve(
+            strict=True)
         dirPath.mkdir(parents=True, exist_ok=True)
 
     # prepare and split dataset
@@ -119,14 +120,19 @@ def main():
     model.params(user_dicts['optz_sched'], dataset_metadata['batch size'])
 
     # create a directory to store all types of results
-    new_version_num = max((int(dir.name.replace('version_', ''))
-                           for dir in dirPath.glob('version_*')),
-                          default=-1) + 1
-    tb_logger = TensorBoardLogger(save_dir=dirPath,
-                                  name="",
-                                  version=new_version_num)
-    dirPath = dirPath.joinpath('version_' + f'{new_version_num}')
-    dirPath.mkdir(parents=True, exist_ok=True)
+    if 'resume_from_checkpoint' in user_dicts['ld_resume_chkpt']:
+        tb_logger = TensorBoardLogger(save_dir=dirPath.parent,
+                                      name="",
+                                      version=dirPath.name)
+    else:
+        new_version_num = max((int(dir.name.replace('version_', ''))
+                               for dir in dirPath.glob('version_*')),
+                              default=-1) + 1
+        tb_logger = TensorBoardLogger(save_dir=dirPath,
+                                      name="",
+                                      version=new_version_num)
+        dirPath = dirPath.joinpath('version_' + f'{new_version_num}')
+        dirPath.mkdir(parents=True, exist_ok=True)
     paramFile = dirPath.joinpath('hyperparameters_used.yaml')
     paramFile.touch()
     paramFile.write_text(dump(user_dicts))
@@ -166,7 +172,9 @@ def main():
             **user_dicts['trainer'])
     elif not (user_dicts['misc']['no_testing']):
         # Training: False, Testing: True
-        trainer = Trainer(logger=True,
+        trainer = Trainer(logger=tb_logger,
+                          num_sanity_val_steps=0,
+                          log_every_n_steps=100,
                           enable_checkpointing=False,
                           **user_dicts['trainer'])
     else:

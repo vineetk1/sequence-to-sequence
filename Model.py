@@ -67,69 +67,65 @@ class Model(LightningModule):
 
     def training_step(self, batch: Dict[str, Any],
                       batch_idx: int) -> torch.Tensor:
-        loss, _ = self._run_model(batch)
+        tr_loss, _ = self._run_model(batch)
         # logger=True => TensorBoard; x-axis is always in steps=batches
         self.log('train_loss',
-                 loss,
+                 tr_loss,
                  on_step=False,
                  on_epoch=True,
                  prog_bar=True,
                  batch_size=self.batch_size['train'],
                  logger=False)
-        return loss
+        return tr_loss
 
     def training_epoch_end(
             self, training_step_outputs: List[Dict[str,
                                                    torch.Tensor]]) -> None:
-        avg_loss = torch.stack([x['loss']
-                                for x in training_step_outputs]).mean()
+        tr_avg_loss = torch.stack([x['loss']
+                                   for x in training_step_outputs]).mean()
         # on TensorBoard, want to see x-axis in epochs (not steps=batches)
-        self.logger.experiment.add_scalar('train_loss_epoch', avg_loss,
+        self.logger.experiment.add_scalar('train_loss_epoch', tr_avg_loss,
                                           self.current_epoch)
 
     def validation_step(self, batch: Dict[str, Any],
                         batch_idx: int) -> torch.Tensor:
-        loss, _ = self._run_model(batch)
-        # checkpoint-callback monitors epoch val_loss, so on_epoch=True
+        v_loss, _ = self._run_model(batch)
         self.log('val_loss',
-                 loss,
+                 v_loss,
                  on_step=False,
-                 on_epoch=True,
+                 on_epoch=True,     # checkpoint-callback monitors epoch
+                                    # val_loss, so on_epoch Must be True
                  prog_bar=True,
                  batch_size=self.batch_size['val'],
                  logger=False)
-        return loss
+        return v_loss
 
     def validation_epoch_end(
             self, val_step_outputs: List[Union[torch.Tensor,
                                                Dict[str, Any]]]) -> None:
-        avg_loss = torch.stack(val_step_outputs).mean()
+        v_avg_loss = torch.stack(val_step_outputs).mean()
         # on TensorBoard, want to see x-axis in epochs (not steps=batches)
-        self.logger.experiment.add_scalar('val_loss_epoch', avg_loss,
+        self.logger.experiment.add_scalar('val_loss_epoch', v_avg_loss,
                                           self.current_epoch)
 
     def test_step(self, batch: Dict[str, Any], batch_idx: int) -> torch.Tensor:
-        loss, logits = self._run_model(batch)
+        ts_loss, logits = self._run_model(batch)
         # checkpoint-callback monitors epoch val_loss, so on_epoch=True
-        self.log('test_loss_step',
-                 loss,
-                 on_step=True,
+        self.log('test_loss',
+                 ts_loss,
+                 on_step=False,
                  on_epoch=True,
-                 prog_bar=True,
+                 prog_bar=False,
                  batch_size=self.batch_size['test'],
                  logger=True)
         if self.statistics:
             self._statistics_step(predictions=torch.argmax(logits, dim=-1),
                                   batch=batch)
-        return loss
+        return ts_loss
 
     def test_epoch_end(
             self, test_step_outputs: List[Union[torch.Tensor,
                                                 Dict[str, Any]]]) -> None:
-        avg_loss = torch.stack(test_step_outputs).mean()
-        # on TensorBoard, want to see x-axis in epochs (not steps=batches)
-        self.logger.experiment.add_scalar('test_loss_epoch', avg_loss,
-                                          self.current_epoch)
         if self.statistics:
             self._statistics_end()
 
@@ -204,7 +200,14 @@ class Model(LightningModule):
                        dirPath: pathlib.Path, tokenizer) -> None:
         self.failed_dlgs_file = dirPath.joinpath('dialogs_failed.txt')
         self.failed_dlgs_file.touch()
-        self.failed_dlgs_file.write_text('')  # empty the file
+        if self.failed_dlgs_file.stat().st_size:
+            with self.failed_dlgs_file.open('a') as file:
+                file.write('\n\n****resume from checkpoint****\n')
+        self.test_results = dirPath.joinpath('test-results.txt')
+        self.test_results.touch()
+        if self.test_results.stat().st_size:
+            with self.test_results.open('a') as file:
+                file.write('\n\n****resume from checkpoint****\n')
 
         self.statistics = True
         self.dataset_meta = dataset_meta
@@ -283,10 +286,8 @@ class Model(LightningModule):
         from contextlib import redirect_stdout
         from pathlib import Path
         stdoutput = Path('/dev/null')
-        test_results = self.dirPath.joinpath('test-results.txt')
-        test_results.touch(exist_ok=False)
-        for out in (stdoutput, test_results):
-            with out.open("w") as results_file:
+        for out in (stdoutput, self.test_results):
+            with out.open("a") as results_file:
                 with redirect_stdout(stdout if out ==
                                      stdoutput else results_file):
                     for k, v in self.dataset_meta.items():

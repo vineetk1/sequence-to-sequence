@@ -164,10 +164,6 @@ def main():
             logger=tb_logger,
             deterministic=True,
             num_sanity_val_steps=0,
-            log_every_n_steps=100,
-            accumulate_grad_batches=32,
-            #stochastic_weight_avg=True,
-            gradient_clip_val=0.5,
             callbacks=[checkpoint_callback, lr_monitor],
             **user_dicts['trainer'])
     elif not (user_dicts['misc']['no_testing']):

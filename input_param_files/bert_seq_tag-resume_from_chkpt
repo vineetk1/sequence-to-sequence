@@ -39,6 +39,7 @@ parameters for python-dictionary 'data'
 parameters for python-dictionary 'trainer'
 - 
 {'gpus': 1, 'max_epochs': 4}
+#{'gpus': 1, 'max_epochs': 5, 'log_every_n_steps': 100, 'accumulate_grad_batches': 32, 'stochastic_weight_avg': True, 'gradient_clip_val': 0.5}
 
 
 parameters for python-dictionary 'model_init'. ***Contents of this dict are replaced by corresponding checkpoint dict*** 

@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 import pathlib
 import pickle
+import random
 
 logg = getLogger(__name__)
 
@@ -31,22 +32,14 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
     df = df.drop(
         columns=['title_status', 'lot', 'state', 'country', 'condition'])
 
-    # (1) generate sentences
-    def _multiple_words_to_sentence(price: int, brand: str, model: str,
-                                    year: int, mileage: float, color: str,
-                                    vin: str) -> List:
-        return f'{price}, {brand}, {model}, {year}, {mileage}, {color}, {vin}'
-
-    df["sentence"] = pd.Series(
-        map(_multiple_words_to_sentence, df["price"], df["brand"], df["model"],
-            df["year"], df["mileage"], df["color"], df["vin"]))
-
-    # remove duplicates; it is ok to have missing values
-    df.drop_duplicates(subset=['sentence'], keep='first', inplace=True)
-    df.reset_index(drop=True, inplace=True)
+    # (1) generate sentence_split_into_words and word_labels
+    def _generate_sentence_wordLabels(*args) -> Tuple[List, List]:
+        rndm_smpl = random.sample(range(len(args)), len(args))
+        sentence = ""
+        for idx in rndm_smpl:
+            sentence += f'{args[idx]}, '
 
     # (2) pre-tokenization processing of sentences
-    def _pre_tokenization(sentence: str) -> List:
         '''
         ************************************************************
         sentence.split() or tokenizer fail when sentence has both
@@ -56,42 +49,47 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
         '''
         # remove all punctuations except $#@%   Also split sentence along
         # white spaces into words
-        sentence = sentence.translate(
+        sentence_split_into_words = sentence.translate(
             str.maketrans('', '', '!"&\'()*+,-./:;<=>?[\\]^_`{|}~')).split()
-        if not sentence:
-            # *** write code to drop this sentence
-            exit()
-        return sentence
 
-    df['sentence_split_into_words'] = pd.Series(
-        map(_pre_tokenization, df['sentence']))
-    df = df.drop(columns=["sentence"])
-
-    # (3) generate word-labels from words in sentence
-    def _word_labels_from_sentence(*args: Tuple) -> List:
+        # (3) generate word-labels from words in sentence
+        # ****NOTE: IMP** word-labels are not created from sentence but from args*******
         labels_ordered = [
             'price', 'brand', 'model', 'year', 'mileage', 'color', 'vin'
         ]
         words_labels = []
-        for i, words in enumerate(args):
+        for idx in rndm_smpl:
+            words = args[idx]
             # remove punctuations here ???
             if not isinstance(words, str):
-                words_labels.append(f'B-{labels_ordered[i]}')
+                words_labels.append(f'B-{labels_ordered[idx]}')
             else:
                 first_word = True
                 for word in words.split():
                     if first_word:
                         first_word = False
-                        words_labels.append(f'B-{labels_ordered[i]}')
+                        words_labels.append(f'B-{labels_ordered[idx]}')
                     else:
-                        words_labels.append(f'I-{labels_ordered[i]}')
-        return words_labels
+                        words_labels.append(f'I-{labels_ordered[idx]}')
+        if len(sentence_split_into_words) != len(words_labels):
+            strng = (
+                f'\n{len(sentence_split_into_words)} != {len(words_labels)}, '
+                f'{sentence_split_into_words}, {words_labels}')
+            logg.critical(strng)
+            exit()
+        return sentence_split_into_words, words_labels
 
-    df["word_labels"] = pd.Series(
-        map(_word_labels_from_sentence, df["price"], df["brand"], df["model"],
+    df["sentence_split_into_words_word_labels"] = pd.Series(
+        map(_generate_sentence_wordLabels, df["price"], df["brand"], df["model"],
             df["year"], df["mileage"], df["color"], df["vin"]))
     df = df.drop(
         columns=["price", "brand", "model", "year", "mileage", "color", "vin"])
+
+    for i, col in enumerate(["sentence_split_into_words", "word_labels"]):
+        df[col] = df["sentence_split_into_words_word_labels"].apply(
+            lambda sentence_split_into_words_word_labels:
+            sentence_split_into_words_word_labels[i])
+    df = df.drop(columns=["sentence_split_into_words_word_labels"])
 
     # (4) convert word_labels to token_labels_names
     def _word_labels_to_token_labels_names(sentence: List,
@@ -154,6 +152,7 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
     df['token_labels'] = pd.Series(
         map(_word_labels_to_token_labels_names,
             df['sentence_split_into_words'], df['word_labels']))
+
     df = df.drop(columns=['word_labels'])
 
     # create a list of unique BIO2 labels
@@ -244,7 +243,8 @@ def split_dataset(
     ]
 
     trainValTest_tokenLabels_unseen = [
-        set(range(len(unique_bio2_label_names))).difference(set(sub_dataset_tokenLabels_count.keys()))
+        set(range(len(unique_bio2_label_names))).difference(
+            set(sub_dataset_tokenLabels_count.keys()))
         for sub_dataset_tokenLabels_count in (trainValTest_tokenLabels_count)
     ]
 
@@ -254,29 +254,21 @@ def split_dataset(
             'val': split['val'],
             'test': split['test']
         },
-
         'dataset lengths': {
             'original': len(df),
             'train': len(df_train) if df_train is not None else 0,
             'val': len(df_val) if df_val is not None else 0,
             'test': len(df_test) if df_test is not None else 0
         },
-
         'token-labels -> number:name':
         {k: v
          for k, v in enumerate(unique_bio2_label_names)},
-
         'train token-labels -> number:count':
         trainValTest_tokenLabels_count[0],
-
         'val token-labels -> number:count': trainValTest_tokenLabels_count[1],
-
         'test token-labels -> number:count': trainValTest_tokenLabels_count[2],
-
         'train unseen token-labels': trainValTest_tokenLabels_unseen[0],
-
         'val unseen token-labels': trainValTest_tokenLabels_unseen[1],
-
         'test unseen token-labels': trainValTest_tokenLabels_unseen[2]
     }
 

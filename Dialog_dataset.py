@@ -20,26 +20,63 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
     dataset_file = dirName.joinpath(f'{fileName_noSuffix}.df')
     dataset_meta_file = dirName.joinpath(f'{fileName_noSuffix}.meta')
 
-    if dataset_file.exists() and dataset_meta_file.exists() and (
-            dataset_raw_file.stat().st_mtime < dataset_file.stat().st_mtime):
-        logg.info(f'Already existing {dataset_file}')
-        return
+    #if dataset_file.exists() and dataset_meta_file.exists() and (
+    #        dataset_raw_file.stat().st_mtime < dataset_file.stat().st_mtime):
+    #    logg.info(f'Already existing {dataset_file}')
+    #    return
 
     df = pd.read_csv(dataset_path, encoding='unicode_escape')
 
     # give a name to 'Unnamed: 0' column; remove unneeded columns
     df.rename(columns={'Unnamed: 0': 'dlg_id'}, inplace=True)
-    df = df.drop(
-        columns=['title_status', 'lot', 'state', 'country', 'condition'])
+    df = df.drop(columns=[
+        'title_status', 'lot', 'state', 'country', 'condition', 'vin'
+    ])
 
-    # (1) generate sentence_split_into_words and word_labels
-    def _generate_sentence_wordLabels(*args) -> Tuple[List, List]:
-        rndm_smpl = random.sample(range(len(args)), len(args))
+    def _generate_sentence_wordLabels(
+            *entities: List[Any]) -> Tuple[List, List]:
+        entities_labels = ['price', 'brand', 'model', 'year', 'mileage', 'color']
+        price_sen_seg = [
+            'price under {}', 'under {}', 'over {}', '{}', 'less than {}',
+            'more than {}', 'between {} and {}'
+        ]
+        brand_sen_seg = [
+            'looking for {}'
+            'brand {}', '{}', 'brands {}', '{} and {} or {}'
+            '{}', '{} {} {}'
+        ]
+        model_sen_seg = [
+            'looking for {}'
+            'model {}', '{}', 'model {}', '{} and {} or {}'
+            '{}', '{} {} {}'
+        ]
+        year_sen_seg = [
+            'year under {}', 'under {}', 'over {}', '{}', 'less than {}',
+            'more than {}', 'between {} and {}'
+        ]
+        mileage_sen_seg = [
+            'mileage under {}', 'under {}', 'over {}', '{}', 'less than {}',
+            'more than {}', 'between {} and {}'
+        ]
+        color_sen_seg = [
+            'looking for {}'
+            'color {}', '{}', 'color {}', '{} and {} or {}'
+            '{}', '{} {} {}'
+        ]
+        entities_sentence_segments = {
+            'price': price_sen_seg,
+            'brand': brand_sen_seg,
+            'model': model_sen_seg,
+            'year': year_sen_seg,
+            'mileage': mileage_sen_seg,
+            'color': color_sen_seg,
+        }
+
+        # (1a) generate sentence from entities
+        entities_idxs = random.sample(range(len(entities)), len(entities))
         sentence = ""
-        for idx in rndm_smpl:
-            sentence += f'{args[idx]}, '
-
-    # (2) pre-tokenization processing of sentences
+        for entity_idx in entities_idxs:
+            sentence += f'{entities[entity_idx]}, '
         '''
         ************************************************************
         sentence.split() or tokenizer fail when sentence has both
@@ -47,30 +84,30 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
         three quotes? Test it out; Use try-except
         ************************************************************
         '''
-        # remove all punctuations except $#@%   Also split sentence along
+        # (1b) pre-tokenization processing of sentence
+        # remove all punctuations except $#@%{} Also split sentence along
         # white spaces into words
         sentence_split_into_words = sentence.translate(
-            str.maketrans('', '', '!"&\'()*+,-./:;<=>?[\\]^_`{|}~')).split()
+            str.maketrans('', '', '!"&\'()*+,-./:;<=>?[\\]^_`|~')).split()
 
-        # (3) generate word-labels from words in sentence
-        # ****NOTE: IMP** word-labels are not created from sentence but from args*******
-        labels_ordered = [
-            'price', 'brand', 'model', 'year', 'mileage', 'color', 'vin'
-        ]
+        # (1c) generate word-labels from words in sentence
+        # ****NOTE: IMP** word-labels are not created from sentence but from entities*******
         words_labels = []
-        for idx in rndm_smpl:
-            words = args[idx]
+        for entity_label_idx in rndm_smpl:
+            words = entities[entity_label_idx]
             # remove punctuations here ???
             if not isinstance(words, str):
-                words_labels.append(f'B-{labels_ordered[idx]}')
+                words_labels.append(f'B-{entity_labels[entity_label_idx]}')
             else:
                 first_word = True
                 for word in words.split():
                     if first_word:
                         first_word = False
-                        words_labels.append(f'B-{labels_ordered[idx]}')
+                        words_labels.append(
+                            f'B-{entity_labels[entity_label_idx]}')
                     else:
-                        words_labels.append(f'I-{labels_ordered[idx]}')
+                        words_labels.append(
+                            f'I-{entity_labels[entity_label_idx]}')
         if len(sentence_split_into_words) != len(words_labels):
             strng = (
                 f'\n{len(sentence_split_into_words)} != {len(words_labels)}, '
@@ -79,19 +116,22 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
             exit()
         return sentence_split_into_words, words_labels
 
+    # (1) create "sentence_split_into_words_word_labels" column with
+    # sentence_split_into_words and word_labels
     df["sentence_split_into_words_word_labels"] = pd.Series(
-        map(_generate_sentence_wordLabels, df["price"], df["brand"], df["model"],
-            df["year"], df["mileage"], df["color"], df["vin"]))
+        map(_generate_sentence_wordLabels, df["price"], df["brand"],
+            df["model"], df["year"], df["mileage"], df["color"]))
     df = df.drop(
-        columns=["price", "brand", "model", "year", "mileage", "color", "vin"])
+        columns=["price", "brand", "model", "year", "mileage", "color"])
 
+    # (2) from "sentence_split_into_words_word_labels" column, create two
+    # columns with sentence_split_into_words and word_labels
     for i, col in enumerate(["sentence_split_into_words", "word_labels"]):
         df[col] = df["sentence_split_into_words_word_labels"].apply(
             lambda sentence_split_into_words_word_labels:
             sentence_split_into_words_word_labels[i])
     df = df.drop(columns=["sentence_split_into_words_word_labels"])
 
-    # (4) convert word_labels to token_labels_names
     def _word_labels_to_token_labels_names(sentence: List,
                                            words_labels: List) -> List:
         '''
@@ -149,13 +189,13 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
         assert len(tokens_labels) == len(tokens)
         return tokens_labels
 
+    # (3) convert word_labels to token_labels_names
     df['token_labels'] = pd.Series(
         map(_word_labels_to_token_labels_names,
             df['sentence_split_into_words'], df['word_labels']))
-
     df = df.drop(columns=['word_labels'])
 
-    # create a list of unique BIO2 labels
+    # (4) create a list of unique BIO2 labels
     unique_bio2_label_names = []
     for token_labels in df['token_labels']:
         for token_label in token_labels:
@@ -163,7 +203,6 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
                                                                  "-100"):
                 unique_bio2_label_names.append(token_label)
 
-    # convert token-label names to numbers
     def _token_labels_names2numbers(token_labels_names: List) -> List:
         return [
             unique_bio2_label_names.index(token_label_name)
@@ -171,9 +210,11 @@ def prepare_dataset(tokenizer, dataset_path: str) -> None:
             for token_label_name in token_labels_names
         ]
 
+    # (5) convert token-label names to numbers
     df['token_labels'] = pd.Series(
         map(_token_labels_names2numbers, df['token_labels']))
 
+    # (6) save data-frame to disk
     df.to_pickle(dataset_file)
     with dataset_meta_file.open('wb') as dmF:
         pickle.dump(unique_bio2_label_names,
@@ -201,7 +242,7 @@ def split_dataset(
     with dataset_meta_file.open('rb') as dmF:
         unique_bio2_label_names = pickle.load(dmF)
 
-    # Split dataset into train, val, test
+    # Split dataset into train, val, test; Note: parts of dialogs may get split
     if not split['train'] and split['test']:
         # testing a dataset on a checkpoint file; no training
         df_train, df_val, df_test, split['val'], split[

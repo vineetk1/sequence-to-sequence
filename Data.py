@@ -7,7 +7,8 @@ import torch
 from torch.utils.data import Dataset, RandomSampler, DataLoader
 from logging import getLogger
 from typing import List, Dict, Any
-from Dialog_dataset import prepare_dataset, split_dataset
+from Generate_dataset import generate_dataset
+from Split_dataset import split_dataset
 
 logg = getLogger(__name__)
 
@@ -27,7 +28,7 @@ class Data(LightningDataModule):
         self.batch_size = batch_size['train']
 
     def generate_data_labels(self, dataset_path: str) -> None:
-        prepare_dataset(self.tokenizer, dataset_path)
+        generate_dataset(self.tokenizer, dataset_path)
 
     def split_dataset(self, dataset_path: str, dataset_split: Dict[str, int],
                       no_training: bool, no_testing: bool) -> Dict[str, Any]:
@@ -60,8 +61,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.train_data),
             batch_sampler=None,
-            num_workers=6,
-            #num_workers=0,
+            #num_workers=6,
+            num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -74,8 +75,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.valid_data),
             batch_sampler=None,
-            num_workers=6,
-            #num_workers=0,
+            #num_workers=6,
+            num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -88,8 +89,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.test_data),
             batch_sampler=None,
-            num_workers=6,
-            #num_workers=0,
+            #num_workers=6,
+            num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -108,7 +109,6 @@ class Data(LightningDataModule):
         batch_model_inputs = self.tokenizer(text=batch_sentences,
                                             padding=True,
                                             truncation=True,
-                                            is_split_into_words=True,
                                             return_tensors='pt',
                                             return_token_type_ids=True,
                                             return_attention_mask=True)

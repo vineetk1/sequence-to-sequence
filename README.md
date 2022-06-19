@@ -1,4 +1,4 @@
-# Sequence-tagging using Deep Learning
+# Sequence-to-sequence using Deep Learning
 ## Requirements
 * PyTorch version >= 1.11.0+cu113
 * Python version >= 3.8.10

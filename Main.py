@@ -109,11 +109,13 @@ def main():
 
     # initialize model
     if 'ld_chkpt' in user_dicts['ld_resume_chkpt']:
+        # ***Warning: do not add tokenizer as a parameter because
+        # "self.save_hyperparameters()" saves 8000 lines of data pertaining to
+        # the tokenizer
         model = Model.load_from_checkpoint(
             checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
     else:
-        model = Model(user_dicts['model_init'],
-                      dataset_metadata['train token-labels -> number:count'])
+        model = Model(user_dicts['model_init'])
     # batch_size is only provided to turn-off Lightning Warning;
     # resume_from_checkpoint can provide a different batch_size which will
     # conflict with this batch_size
@@ -160,12 +162,11 @@ def main():
             filename=ckpt_filename)
         lr_monitor = LearningRateMonitor(logging_interval='epoch',
                                          log_momentum=True)
-        trainer = Trainer(
-            logger=tb_logger,
-            deterministic=True,
-            num_sanity_val_steps=0,
-            callbacks=[checkpoint_callback, lr_monitor],
-            **user_dicts['trainer'])
+        trainer = Trainer(logger=tb_logger,
+                          deterministic=True,
+                          num_sanity_val_steps=0,
+                          callbacks=[checkpoint_callback, lr_monitor],
+                          **user_dicts['trainer'])
     elif not (user_dicts['misc']['no_testing']):
         # Training: False, Testing: True
         trainer = Trainer(logger=tb_logger,
@@ -195,12 +196,13 @@ def main():
         # Testing: True
         if user_dicts['misc']['statistics']:
             model.set_statistics(dataset_metadata, dirPath, tokenizer)
+        else:
+            model.clear_statistics()
         if not (user_dicts['misc']['no_training']):
             # Training: True; auto loads checkpoint file with lowest val loss
             trainer.test(dataloaders=data.test_dataloader(), ckpt_path='best')
         else:
             trainer.test(model, dataloaders=data.test_dataloader())
-        model.clear_statistics()
     logg.info(f"Results and other information is at the directory: {dirPath}")
 
 
@@ -247,8 +249,9 @@ def verify_and_change_user_provided_parameters(user_dicts: Dict):
         user_dicts['misc']['statistics'] = False
 
     if not user_dicts['ld_resume_chkpt']:
-        if user_dicts["model_init"]['model'] != "bert" or user_dicts[
-                "model_init"]['tokenizer_type'] != "bert":
+        if user_dicts["model_init"][
+                'model'] != "bertEncoderDecoder" or user_dicts["model_init"][
+                    'tokenizer_type'] != "bert":
             strng = ('unknown model and tokenizer_type: '
                      f'{user_dicts["model_init"]["model"]}'
                      f'{user_dicts["model_init"]["tokenizer_type"]}')

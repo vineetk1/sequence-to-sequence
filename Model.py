@@ -10,48 +10,42 @@ import pathlib
 from importlib import import_module
 import copy
 import textwrap
-import math
 
 logg = getLogger(__name__)
 
 
 class Model(LightningModule):
-    def __init__(self, model_init: dict, tokenLabels_NumberCount: dict):
+    def __init__(self, model_init: dict):
         super().__init__()
         # save parameters for future use of "loading a model from
         # checkpoint"
         self.save_hyperparameters()
         # Trainer('auto_lr_find': True,...) requires self.lr
 
-        if model_init['model'] == "bert":
-            from transformers import BertModel
-            # -1 => -100 is not a class
-            self.num_classes = len(tokenLabels_NumberCount) - 1
-            self.bertModel = BertModel.from_pretrained(
-                model_init['model_type'], add_pooling_layer=False)
-            self.classification_head_dropout = torch.nn.Dropout(
-                model_init['classification_head_dropout'] if
-                (('classification_head_dropout' in model_init) and
-                 (isinstance(model_init['classification_head_dropout'], float))
-                 ) else (self.bertModel.config.hidden_dropout_prob))
-            self.classification_head = torch.nn.Linear(
-                self.bertModel.config.hidden_size, self.num_classes)
-            stdv = 1. / math.sqrt(self.classification_head.weight.size(1))
-            self.classification_head.weight.data.uniform_(-stdv, stdv)
-            if self.classification_head.bias is not None:
-                self.classification_head.bias.data.uniform_(-stdv, stdv)
-            if 'loss_func_class_weights' in model_init and isinstance(
-                    model_init['loss_func_class_weights'], bool):
-                weights = torch.tensor([
-                    tokenLabels_NumberCount[number]
-                    for number in range(self.num_classes)
-                ])
-                weights = weights / weights.sum()
-                weights = 1.0 / weights
-                weights = weights / weights.sum()
-                self.loss_fct = torch.nn.CrossEntropyLoss(weight=weights)
-            else:
-                self.loss_fct = torch.nn.CrossEntropyLoss()
+        if model_init['model'] == "bertEncoderDecoder" and model_init[
+                'tokenizer_type'] == "bert" and model_init[
+                    "model_type"] == "bert-base-uncased":
+            from transformers import EncoderDecoderModel
+
+            self.bertEncDecModel = (
+                EncoderDecoderModel.from_encoder_decoder_pretrained(
+                    model_init["model_type"], model_init["model_type"])
+            )  # initialize Bert2Bert from pre-trained checkpoints
+
+            from transformers import BertTokenizerFast
+            tokenizer = BertTokenizerFast.from_pretrained(
+                model_init['model_type'])
+            self.bertEncDecModel.config.decoder_start_token_id = (
+                tokenizer.cls_token_id)
+            self.bertEncDecModel.config.pad_token_id = tokenizer.pad_token_id
+            self.bertEncDecModel.config.vocab_size = (
+                self.bertEncDecModel.config.decoder.vocab_size)
+        else:
+            strng = (f"unknown model={model_init['model']} or "
+                     f"unknown tokenizer_type={model_init['tokenizer_type']} "
+                     f"or unknown model_type={model_init['model_type']}")
+            logg.critical(strng)
+            exit()
 
     def params(self, optz_sched_params: Dict[str, Any],
                batch_size: Dict[str, int]) -> None:
@@ -90,14 +84,15 @@ class Model(LightningModule):
     def validation_step(self, batch: Dict[str, Any],
                         batch_idx: int) -> torch.Tensor:
         v_loss, _ = self._run_model(batch)
-        self.log('val_loss',
-                 v_loss,
-                 on_step=False,
-                 on_epoch=True,     # checkpoint-callback monitors epoch
-                                    # val_loss, so on_epoch Must be True
-                 prog_bar=True,
-                 batch_size=self.batch_size['val'],
-                 logger=False)
+        self.log(
+            'val_loss',
+            v_loss,
+            on_step=False,
+            on_epoch=True,  # checkpoint-callback monitors epoch
+            # val_loss, so on_epoch Must be True
+            prog_bar=True,
+            batch_size=self.batch_size['val'],
+            logger=False)
         return v_loss
 
     def validation_epoch_end(
@@ -131,12 +126,9 @@ class Model(LightningModule):
 
     def _run_model(self,
                    batch: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-        outputs = self.bertModel(**batch['model_inputs'])
-        logits = self.classification_head(
-            self.classification_head_dropout(outputs[0]))
-        loss = self.loss_fct(logits.view(-1, self.num_classes),
-                             batch['labels'].view(-1))
-        return loss, logits
+        outputs = self.bertEncDecModel(**batch['model_inputs'],
+                                       labels=batch['labels'])
+        return outputs.loss, outputs.logits
 
     def configure_optimizers(self):
         opt_sch_params = copy.deepcopy(self.optz_sched_params)

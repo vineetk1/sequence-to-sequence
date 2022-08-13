@@ -61,8 +61,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.train_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -75,8 +75,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.valid_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -89,8 +89,8 @@ class Data(LightningDataModule):
             shuffle=False,
             sampler=RandomSampler(self.test_data),
             batch_sampler=None,
-            #num_workers=6,
-            num_workers=0,
+            num_workers=6,
+            #num_workers=0,
             collate_fn=self._bert_collater,
             pin_memory=True,
             drop_last=False,
@@ -102,19 +102,17 @@ class Data(LightningDataModule):
     def _bert_collater(self,
                        examples: List[List[List[Any]]]) -> Dict[str, Any]:
         batch_ids = []
-        batch_inFrames, batch_sentences, batch_outFrames = [], [], []
+        batch_input, batch_outFrames = [], []
         for example in examples:
             batch_ids.append((example[0], example[1]))
-            batch_inFrames.append(example[2])
-            batch_sentences.append(example[3])
+            batch_input.append(example[2] + " " + example[3])
             batch_outFrames.append(example[4])
 
-        batch_model_inputs = self.tokenizer(text=batch_inFrames,
-                                            text_pair=batch_sentences,
+        batch_model_inputs = self.tokenizer(text=batch_input,
                                             padding=True,
-                                            truncation='only_second',
+                                            truncation=True,
                                             return_tensors='pt',
-                                            return_token_type_ids=True,
+                                            return_token_type_ids=False,
                                             return_attention_mask=True,
                                             return_overflowing_tokens=False)
 
@@ -136,8 +134,6 @@ class Data(LightningDataModule):
                 batch_model_inputs['input_ids'].type(torch.LongTensor),
                 'attention_mask':
                 batch_model_inputs['attention_mask'].type(torch.FloatTensor),
-                'token_type_ids':
-                batch_model_inputs['token_type_ids'].type(torch.LongTensor)
             },
             'labels': batch_labels['input_ids'].type(torch.LongTensor),
             'ids': tuple(batch_ids)

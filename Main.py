@@ -7,6 +7,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks import TQDMProgressBar
 from Data import Data
 from Model import Model
 from ast import literal_eval
@@ -165,7 +166,10 @@ def main():
         trainer = Trainer(logger=tb_logger,
                           deterministic=True,
                           num_sanity_val_steps=0,
-                          callbacks=[checkpoint_callback, lr_monitor],
+                          callbacks=[
+                              checkpoint_callback, lr_monitor,
+                              TQDMProgressBar(refresh_rate=10)
+                          ],
                           **user_dicts['trainer'])
     elif not (user_dicts['misc']['no_testing']):
         # Training: False, Testing: True

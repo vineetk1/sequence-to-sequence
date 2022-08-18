@@ -211,115 +211,13 @@ class Model(LightningModule):
     def _statistics_step(self, predictions: torch.Tensor,
                          batch: Dict[str, Any]) -> None:
         # write to file the info about failed turns of dialogs
-        predictions = torch.where(batch['labels'] == -100, batch['labels'],
-                                  predictions)
-        with self.failed_dlgs_file.open('a') as file:
-            prev_failed_dlgTurnIdx = None
-            wrapper = textwrap.TextWrapper(width=80,
-                                           initial_indent="",
-                                           subsequent_indent=19 * " ")
-            for failed_dlgTurnIdx, failed_elementIdx in torch.ne(
-                    batch['labels'], predictions).nonzero():
-                input_tokens = self.tokenizer.convert_ids_to_tokens(
-                    batch['model_inputs']['input_ids'][failed_dlgTurnIdx])
-                failed_token_label_str = (
-                    f"{input_tokens[failed_elementIdx]}, "
-                    f"{self.dataset_meta['token-labels -> number:name'][batch['labels'][failed_dlgTurnIdx][failed_elementIdx].item()]}, "
-                    f"{ self.dataset_meta['token-labels -> number:name'][predictions[failed_dlgTurnIdx][failed_elementIdx].item()]};\t"
-                )
-                if failed_dlgTurnIdx == prev_failed_dlgTurnIdx:
-                    file.write(failed_token_label_str)
-                    continue
-                input_tokens_str = "Input tokens = " + " ".join(input_tokens)
-                dlg_id_str = f"dlg_id = {batch['ids'][failed_dlgTurnIdx]}"
-                actual_str = "True labels = "
-                predicted_str = "Predicted labels = "
-                for i in torch.arange(batch['labels'].shape[1]):
-                    if batch['labels'][failed_dlgTurnIdx][i].item() != -100:
-                        actual_str = actual_str + self.dataset_meta[
-                            'token-labels -> number:name'][batch['labels'][
-                                failed_dlgTurnIdx][i].item()] + " "
-                        predicted_str = (
-                            predicted_str +
-                            self.dataset_meta['token-labels -> number:name']
-                            [predictions[failed_dlgTurnIdx][i].item()] + " ")
-                failed_token_labels_txt = ('Failed token labels: Input token, '
-                                           'True label, Predicted label; ....')
-                file.write("\n\n")
-                for strng in (dlg_id_str, input_tokens_str, actual_str,
-                              predicted_str, failed_token_labels_txt):
-                    file.write(wrapper.fill(strng))
-                    file.write("\n")
-                file.write(failed_token_label_str)
-                prev_failed_dlgTurnIdx = failed_dlgTurnIdx
-
-        # collect info to later calculate precision, recall, f1, etc.
-        for prediction, actual in zip(predictions.tolist(),
-                                      batch['labels'].tolist()):
-            y_true = []
-            y_pred = []
-            for predicted_token_label_num, actual_token_label_num in zip(
-                    prediction, actual):
-                if actual_token_label_num != -100:
-                    y_true.append(
-                        self.dataset_meta['token-labels -> number:name']
-                        [actual_token_label_num])
-                    y_pred.append(
-                        self.dataset_meta['token-labels -> number:name']
-                        [predicted_token_label_num])
-            self.y_true.append(y_true)
-            self.y_pred.append(y_pred)
-            assert len(y_true) == len(y_pred)
+        input = self.tokenizer.batch_decode(batch['model_inputs']['input_ids'],
+                                            skip_special_tokens=True)
+        label = self.tokenizer.batch_decode(batch['labels'], skip_special_tokens=True)
+        output = self.tokenizer.batch_decode(predictions,
+                                             skip_special_tokens=True)
+        assert output == label
+        pass
 
     def _statistics_end(self) -> None:
-
-        # Print
-        from sys import stdout
-        from contextlib import redirect_stdout
-        from pathlib import Path
-        stdoutput = Path('/dev/null')
-        for out in (stdoutput, self.test_results):
-            with out.open("a") as results_file:
-                with redirect_stdout(stdout if out ==
-                                     stdoutput else results_file):
-                    for k, v in self.dataset_meta.items():
-                        print(k)
-                        print(
-                            textwrap.fill(f'{v}',
-                                          width=80,
-                                          initial_indent=4 * " ",
-                                          subsequent_indent=5 * " "))
-
-                    from seqeval.scheme import IOB2
-                    from seqeval.metrics import accuracy_score
-                    from seqeval.metrics import precision_score
-                    from seqeval.metrics import recall_score
-                    from seqeval.metrics import f1_score
-                    from seqeval.metrics import classification_report
-                    print('Classification Report=', end="")
-                    print(
-                        classification_report(self.y_true,
-                                              self.y_pred,
-                                              mode='strict',
-                                              scheme=IOB2))
-                    print('Precision=', end="")
-                    print(
-                        precision_score(self.y_true,
-                                        self.y_pred,
-                                        mode='strict',
-                                        scheme=IOB2))
-                    print('Recall=', end="")
-                    print(
-                        recall_score(self.y_true,
-                                     self.y_pred,
-                                     mode='strict',
-                                     scheme=IOB2))
-                    print('F1=', end="")
-                    print(
-                        f1_score(self.y_true,
-                                 self.y_pred,
-                                 mode='strict',
-                                 scheme=IOB2))
-                    print(
-                        f'Accuracy={accuracy_score(self.y_true, self.y_pred): .2f}'
-                    )
+        pass

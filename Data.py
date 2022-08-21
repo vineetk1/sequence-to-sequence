@@ -101,6 +101,8 @@ class Data(LightningDataModule):
 
     def _bert_collater(self,
                        examples: List[List[List[Any]]]) -> Dict[str, Any]:
+        MAX_INPUT_LENGTH = 512
+        MAX_LABEL_LENGTH = 512
         batch_ids = []
         batch_input, batch_outFrames = [], []
         for example in examples:
@@ -109,24 +111,22 @@ class Data(LightningDataModule):
             batch_outFrames.append(example[4])
 
         batch_model_inputs = self.tokenizer(text=batch_input,
-                                            padding=True,
+                                            padding='longest',
                                             truncation=True,
+                                            max_length=MAX_INPUT_LENGTH,
                                             return_tensors='pt',
                                             return_token_type_ids=False,
                                             return_attention_mask=True,
                                             return_overflowing_tokens=False)
 
         batch_labels = self.tokenizer(text=batch_outFrames,
-                                      padding=True,
+                                      padding='longest',
                                       truncation=True,
+                                      max_length=MAX_LABEL_LENGTH,
                                       return_tensors='pt',
                                       return_token_type_ids=False,
                                       return_attention_mask=False,
                                       return_overflowing_tokens=False)
-
-        # following two asserts are NOT needed during deployment; remove them
-        assert len(batch_model_inputs["input_ids"][0]) <= self.tokenizer.model_max_length
-        assert len(batch_labels["input_ids"][0]) <= self.tokenizer.model_max_length
 
         return {
             'model_inputs': {

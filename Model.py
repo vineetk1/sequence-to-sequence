@@ -22,24 +22,11 @@ class Model(LightningModule):
         self.save_hyperparameters()
         # Trainer('auto_lr_find': True,...) requires self.lr
 
-        if model_init['model'] == "bertEncoderDecoder" and model_init[
-                'tokenizer_type'] == "bert" and model_init[
-                    "model_type"] == "bert-base-uncased":
-            from transformers import EncoderDecoderModel
-
-            self.bertEncDecModel = (
-                EncoderDecoderModel.from_encoder_decoder_pretrained(
-                    model_init["model_type"], model_init["model_type"])
-            )  # initialize Bert2Bert from pre-trained checkpoints
-
-            from transformers import BertTokenizerFast
-            tokenizer = BertTokenizerFast.from_pretrained(
-                model_init['model_type'])
-            self.bertEncDecModel.config.decoder_start_token_id = (
-                tokenizer.cls_token_id)
-            self.bertEncDecModel.config.pad_token_id = tokenizer.pad_token_id
-            self.bertEncDecModel.config.vocab_size = (
-                self.bertEncDecModel.config.decoder.vocab_size)
+        if model_init['model'] == "t5EncoderDecoder" and model_init[
+                "model_type"] == "google/t5-v1_1-base":
+            from transformers import T5ForConditionalGeneration
+            self.t5Model = T5ForConditionalGeneration.from_pretrained(
+                model_init["model_type"])
         else:
             strng = (f"unknown model={model_init['model']} or "
                      f"unknown tokenizer_type={model_init['tokenizer_type']} "
@@ -126,8 +113,7 @@ class Model(LightningModule):
 
     def _run_model(self,
                    batch: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-        outputs = self.bertEncDecModel(**batch['model_inputs'],
-                                       labels=batch['labels'])
+        outputs = self.t5Model(**batch['model_inputs'], labels=batch['labels'])
         return outputs.loss, outputs.logits
 
     def configure_optimizers(self):
@@ -213,7 +199,8 @@ class Model(LightningModule):
         # write to file the info about failed turns of dialogs
         input = self.tokenizer.batch_decode(batch['model_inputs']['input_ids'],
                                             skip_special_tokens=True)
-        label = self.tokenizer.batch_decode(batch['labels'], skip_special_tokens=True)
+        label = self.tokenizer.batch_decode(batch['labels'],
+                                            skip_special_tokens=True)
         output = self.tokenizer.batch_decode(predictions,
                                              skip_special_tokens=True)
         assert output == label

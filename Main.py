@@ -94,9 +94,9 @@ def main():
         dirPath.mkdir(parents=True, exist_ok=True)
 
     # prepare and split dataset
-    from transformers import BertTokenizerFast
-    tokenizer = BertTokenizerFast.from_pretrained(
-        user_dicts['model_init']['model_type'])
+    from transformers import T5Tokenizer
+    tokenizer = T5Tokenizer.from_pretrained(
+        user_dicts['model_init']['tokenizer_type'])
     data = Data(tokenizer,
                 batch_size=user_dicts['data']['batch_size']
                 if 'batch_size' in user_dicts['data'] else {})
@@ -110,9 +110,6 @@ def main():
 
     # initialize model
     if 'ld_chkpt' in user_dicts['ld_resume_chkpt']:
-        # ***Warning: do not add tokenizer as a parameter because
-        # "self.save_hyperparameters()" saves 8000 lines of data pertaining to
-        # the tokenizer
         model = Model.load_from_checkpoint(
             checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
     else:
@@ -254,10 +251,12 @@ def verify_and_change_user_provided_parameters(user_dicts: Dict):
 
     if not user_dicts['ld_resume_chkpt']:
         if user_dicts["model_init"][
-                'model'] != "bertEncoderDecoder" or user_dicts["model_init"][
-                    'tokenizer_type'] != "bert":
+                'model'] != "t5EncoderDecoder" or user_dicts["model_init"][
+                    'tokenizer_type'] != "google/t5-v1_1-base" or user_dicts[
+                        "model_init"]['model_type'] != "google/t5-v1_1-base":
             strng = ('unknown model and tokenizer_type: '
                      f'{user_dicts["model_init"]["model"]}'
+                     f'{user_dicts["model_init"]["model_type"]}'
                      f'{user_dicts["model_init"]["tokenizer_type"]}')
             logg.critical(strng)
             exit()

@@ -197,14 +197,52 @@ class Model(LightningModule):
     def _statistics_step(self, predictions: torch.Tensor,
                          batch: Dict[str, Any]) -> None:
         # write to file the info about failed turns of dialogs
-        input = self.tokenizer.batch_decode(batch['model_inputs']['input_ids'],
+
+
+        outputs = self.t5Model.generate(
+            # parameter = None => replace with self.config.parameter
+            #input_ids=batch['model_inputs']['input_ids'],
+            #attention_mask=batch['model_inputs']['attention_mask'],
+            max_length=self.tokenizer.max_model_input_sizes['t5-base'],
+            min_length=1,
+            do_sample=False,
+            early_stopping=None,
+            num_beams=6,
+            #num_beams=None,
+            temperature=None,
+            top_k=None,
+            top_p=None,
+            repetition_penalty=1.0,
+            bad_words_ids=None,
+            #bos_token_id=self.tokenizer.bos_token_id,
+            #pad_token_id=self.tokenizer.pad_token_id,
+            #eos_token_id=self.tokenizer.eos_token_id,
+            length_penalty=1.0,
+            no_repeat_ngram_size=None,
+            num_return_sequences=1,
+            decoder_start_token_id=None,
+            use_cache=None,
+            # num_beam_groups=None,  # this parameter is not in called program
+            # diversity_penalty=None,  # this parametr is not in called program
+            prefix_allowed_tokens_fn=None,
+            **batch['model_inputs'])
+
+
+        gens = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        inputs = self.tokenizer.batch_decode(batch['model_inputs']['input_ids'],
                                             skip_special_tokens=True)
-        label = self.tokenizer.batch_decode(batch['labels'],
+        labels = self.tokenizer.batch_decode(batch['labels'],
                                             skip_special_tokens=True)
-        output = self.tokenizer.batch_decode(predictions,
+        preds = self.tokenizer.batch_decode(predictions,
                                              skip_special_tokens=True)
-        assert output == label
-        pass
+        pred_count, gen_count, total_count = 0, 0, 0
+        for input, label, pred, gen in zip(inputs, labels, preds, gens):
+            total_count += 1
+            pred_count += 1 if (pred_bool := (label == pred)) else 0
+            gen_count += 1 if (gen_bool := (label == gen)) else 0
+            print(f'{input}\n{label}\n{pred} {pred_bool}\n{gen} {gen_bool}\n')
+        print(f'pred_count = {pred_count}/{total_count}, gen_count = {gen_count}/{total_count}')
+        print("\n")
 
     def _statistics_end(self) -> None:
         pass

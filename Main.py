@@ -117,7 +117,7 @@ def main():
     # batch_size is only provided to turn-off Lightning Warning;
     # resume_from_checkpoint can provide a different batch_size which will
     # conflict with this batch_size
-    model.params(user_dicts['optz_sched'], dataset_metadata['batch size'])
+    model.params(user_dicts['optz_sched'], dataset_metadata['batch size'], tokenizer)
 
     # create a directory to store all types of results
     if 'resume_from_checkpoint' in user_dicts['ld_resume_chkpt']:
@@ -203,7 +203,7 @@ def main():
             # Training: True; auto loads checkpoint file with lowest val loss
             trainer.test(dataloaders=data.test_dataloader(), ckpt_path='best')
         else:
-            trainer.test(model, dataloaders=data.test_dataloader())
+            trainer.predict(model, dataloaders=data.predict_dataloader())
     logg.info(f"Results and other information is at the directory: {dirPath}")
 
 

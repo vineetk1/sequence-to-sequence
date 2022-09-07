@@ -97,7 +97,19 @@ class Data(LightningDataModule):
             timeout=0)
 
     def predict_dataloader(self) -> DataLoader:
-        pass
+        return DataLoader(
+            self.test_data,
+            #batch_size=self.batch_size_test,
+            batch_size=3,
+            shuffle=False,
+            sampler=RandomSampler(self.test_data),
+            batch_sampler=None,
+            #num_workers=6,
+            num_workers=0,
+            collate_fn=self._bert_collater,
+            pin_memory=True,
+            drop_last=False,
+            timeout=0)
 
     def _bert_collater(self,
                        examples: List[List[List[Any]]]) -> Dict[str, Any]:
@@ -118,6 +130,11 @@ class Data(LightningDataModule):
                                             return_token_type_ids=False,
                                             return_attention_mask=True,
                                             return_overflowing_tokens=False)
+        if self.tokenizer.unk_token_id in batch_model_inputs['input_ids']:
+            print(batch_input)
+            print(self.tokenizer.batch_decode(batch_model_inputs['input_ids']))
+            logg.critical("UNK detected in input")
+            exit()
 
         batch_labels = self.tokenizer(text=batch_outFrames,
                                       padding='longest',
@@ -127,6 +144,11 @@ class Data(LightningDataModule):
                                       return_token_type_ids=False,
                                       return_attention_mask=False,
                                       return_overflowing_tokens=False)
+        if self.tokenizer.unk_token_id in batch_labels['input_ids']:
+            print(batch_outFrames)
+            print(self.tokenizer.batch_decode(batch_labels['input_ids']))
+            logg.critical("UNK detected in label")
+            exit()
 
         return {
             'model_inputs': {

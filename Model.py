@@ -10,11 +10,14 @@ import pathlib
 from importlib import import_module
 import copy
 import textwrap
+import pandas as pd
+from collections import Counter
 
 logg = getLogger(__name__)
 
 
 class Model(LightningModule):
+
     def __init__(self, model_init: dict):
         super().__init__()
         # save parameters for future use of "loading a model from
@@ -35,13 +38,15 @@ class Model(LightningModule):
             exit()
 
     def params(self, optz_sched_params: Dict[str, Any],
-               batch_size: Dict[str, int]) -> None:
+               batch_size: Dict[str, int], tokenizer) -> None:
         self.batch_size = batch_size  # needed to turn off lightning warning
         self.optz_sched_params = optz_sched_params
         # Trainer('auto_lr_find': True...) requires self.lr
         self.lr = optz_sched_params['optz_params']['lr'] if (
             'optz_params' in optz_sched_params) and (
                 'lr' in optz_sched_params['optz_params']) else None
+        tokenizer.add_tokens(['<'])
+        self.t5Model.resize_token_embeddings(len(tokenizer))
 
     def forward(self):
         logg.debug('')
@@ -186,20 +191,22 @@ class Model(LightningModule):
         if self.test_results.stat().st_size:
             with self.test_results.open('a') as file:
                 file.write('\n\n****resume from checkpoint****\n')
+        self.temp_file = dirPath.joinpath('temp.txt')
+        self.temp_file.touch()
+        self.temp_file.write_text('')  # empty the file
 
         self.statistics = True
+        self.df = pd.read_pickle(dataset_meta['dataset_panda'])
         self.dataset_meta = dataset_meta
         self.dirPath = dirPath
         self.tokenizer = tokenizer
-        self.y_true = []
-        self.y_pred = []
+        self.cntr = Counter()
 
-    def _statistics_step(self, predictions: torch.Tensor,
-                         batch: Dict[str, Any]) -> None:
-        # write to file the info about failed turns of dialogs
+    def on_predict_start(self) -> None:
+        pass
 
-
-        outputs = self.t5Model.generate(
+    def predict_step(self, batch: Dict[str, Any], batch_idx: int) -> Any:
+        batch_output = self.t5Model.generate(
             # parameter = None => replace with self.config.parameter
             #input_ids=batch['model_inputs']['input_ids'],
             #attention_mask=batch['model_inputs']['attention_mask'],
@@ -227,22 +234,70 @@ class Model(LightningModule):
             prefix_allowed_tokens_fn=None,
             **batch['model_inputs'])
 
+        if self.tokenizer.unk_token_id in batch_output:
+            print(self.tokenizer.batch_decode(batch_output))
+            print(self.tokenizer.batch_decode(batch['labels']))
+            logg.critical("UNK detected in batch_output")
+            exit()
 
+        if torch.equal(batch['labels'], batch_output[:, 1:]):
+            self.cntr['num_dlgs'] = len(batch['ids'])
+            self.cntr['num_dlgs_pass'] = len(batch['ids'])
+            for id in batch['ids']:
+                self.cntr[f'num_trn{id[1]}_pass'] += 1
+            return
+
+        with self.failed_dlgs_file.open('a') as file:
+            for batch_idx in range(len(batch['ids'])):
+                if not torch.equal(batch['labels'][batch_idx],
+                                   batch_output[batch_idx, 1:]):
+                    # dlg-turn failed
+                    strng = self._create_string_for_file(
+                        batch['model_inputs']['input_ids'][batch_idx],
+                        batch_output[batch_idx, 1:],
+                        batch['labels'][batch_idx], batch['ids'][batch_idx])
+
+    def _create_string_for_file(self, input: torch.Tensor, label: torch.Tensor,
+                                output: torch.Tensor, id: List[int]) -> str:
+        pd_dlg_trn = self.df.loc[(self.df['dlg_ids'] == id[0])
+                                 & (self.df['turns'] == id[1])]
+        assert self.tokenizer.decode(
+            input,
+            skip_special_tokens=True) == (pd_dlg_trn['in_seq2seq_frames'] +
+                                          " " +
+                                          pd_dlg_trn['sentences']).item()
+        assert self.tokenizer.decode(label, skip_special_tokens=True) == pd_dlg_trn['out_seq2seq_frames'].item()
+        pass
+
+    '''
+    def _create_string_for_file(self, input: torch.Tensor, label: torch.Tensor, output: torch.Tensori, id: List[int]) -> str:
+        pd_dlg_trn = self.df.loc[
+            (self.df['dlg_ids'] == batch['ids'][batch_idx][0])
+            & (self.df['turns'] == batch['ids'][batch_idx][1])]
+                    strng = _create_string_for_file(
+                        in=batch['model_inputs']['input_ids'][batch_idx],
+                        label=batch['label'][batch_idx],
+                        out=batch_output[batch_idx, 1:], id=batch['ids'][batch_idx])
+                    file.write(strng)
+        assert self.tokenizer.decode(input, skip_special_tokens=True) == (pd_dlg_trn['in_seq2seq_frames'] + " " + pd_dlg_trn['sentences']).item()
+    '''
+
+    def on_predict_end(self) -> None:
+        x = 3
+        """
         gens = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
         inputs = self.tokenizer.batch_decode(batch['model_inputs']['input_ids'],
                                             skip_special_tokens=True)
         labels = self.tokenizer.batch_decode(batch['labels'],
                                             skip_special_tokens=True)
-        preds = self.tokenizer.batch_decode(predictions,
-                                             skip_special_tokens=True)
-        pred_count, gen_count, total_count = 0, 0, 0
-        for input, label, pred, gen in zip(inputs, labels, preds, gens):
+        gen_count, total_count = 0, 0
+        for input, label, gen in zip(inputs, labels, gens):
             total_count += 1
-            pred_count += 1 if (pred_bool := (label == pred)) else 0
             gen_count += 1 if (gen_bool := (label == gen)) else 0
-            print(f'{input}\n{label}\n{pred} {pred_bool}\n{gen} {gen_bool}\n')
-        print(f'pred_count = {pred_count}/{total_count}, gen_count = {gen_count}/{total_count}')
+            print(f'{input}\n{label}\n{gen} {gen_bool}\n')
+        print(f'gen_count = {gen_count}/{total_count}')
         print("\n")
+        """
 
     def _statistics_end(self) -> None:
         pass

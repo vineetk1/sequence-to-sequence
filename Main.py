@@ -97,6 +97,7 @@ def main():
     from transformers import T5Tokenizer
     tokenizer = T5Tokenizer.from_pretrained(
         user_dicts['model_init']['tokenizer_type'])
+    tokenizer.add_tokens(['<'])
     data = Data(tokenizer,
                 batch_size=user_dicts['data']['batch_size']
                 if 'batch_size' in user_dicts['data'] else {})
@@ -113,11 +114,11 @@ def main():
         model = Model.load_from_checkpoint(
             checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
     else:
-        model = Model(user_dicts['model_init'])
+        model = Model(user_dicts['model_init'], tokenizer)
     # batch_size is only provided to turn-off Lightning Warning;
     # resume_from_checkpoint can provide a different batch_size which will
     # conflict with this batch_size
-    model.params(user_dicts['optz_sched'], dataset_metadata['batch size'], tokenizer)
+    model.params(user_dicts['optz_sched'], dataset_metadata['batch size'])
 
     # create a directory to store all types of results
     if 'resume_from_checkpoint' in user_dicts['ld_resume_chkpt']:

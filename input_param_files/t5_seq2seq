@@ -34,11 +34,11 @@ Does Not work: 'auto_lr_find': True,  'auto_scale_batch_size': True
 Works:         'auto_lr_find': True,  'auto_scale_batch_size': False
 Works:         'auto_lr_find': False, 'auto_scale_batch_size': True
 - 
-{'gpus': 1, 'max_epochs': 1000, 'log_every_n_steps': 100, 'accumulate_grad_batches': 32, 'gradient_clip_val': 0.5}
-#{'gpus': 1, 'max_epochs': 5, 'log_every_n_steps': 100, 'accumulate_grad_batches': 32, 'stochastic_weight_avg': True, 'gradient_clip_val': 0.5}
-#{'gpus': 1, 'max_epochs': 1, 'auto_lr_find': False, 'auto_scale_batch_size': True}
-#{'gpus': 1, 'max_epochs': 1, 'auto_lr_find': True, 'auto_scale_batch_size': False}
-#{'gpus': 1, 'max_epochs': 1, 'auto_lr_find': True, 'auto_scale_batch_size': True}
+{'accelerator': 'gpu', 'devices': 1, 'max_epochs': 1000, 'log_every_n_steps': 100, 'accumulate_grad_batches': 32, 'gradient_clip_val': 0.5}
+#{'accelerator': 'gpu', 'devices': 1, 'max_epochs': 5, 'log_every_n_steps': 100, 'accumulate_grad_batches': 32, 'stochastic_weight_avg': True, 'gradient_clip_val': 0.5}
+#{'accelerator': 'gpu', 'devices': 1, 'max_epochs': 1, 'auto_lr_find': False, 'auto_scale_batch_size': True}
+#{'accelerator': 'gpu', 'devices': 1, 'max_epochs': 1, 'auto_lr_find': True, 'auto_scale_batch_size': False}
+#{'accelerator': 'gpu', 'devices': 1, 'max_epochs': 1, 'auto_lr_find': True, 'auto_scale_batch_size': True}
 
 
 parameters for python-dictionary 'model_init'

@@ -18,7 +18,7 @@ logg = getLogger(__name__)
 
 class Model(LightningModule):
 
-    def __init__(self, model_init: dict):
+    def __init__(self, model_init: dict, tokenizer):
         super().__init__()
         # save parameters for future use of "loading a model from
         # checkpoint"
@@ -30,6 +30,7 @@ class Model(LightningModule):
             from transformers import T5ForConditionalGeneration
             self.t5Model = T5ForConditionalGeneration.from_pretrained(
                 model_init["model_type"])
+            self.t5Model.resize_token_embeddings(len(tokenizer))
         else:
             strng = (f"unknown model={model_init['model']} or "
                      f"unknown tokenizer_type={model_init['tokenizer_type']} "
@@ -38,15 +39,13 @@ class Model(LightningModule):
             exit()
 
     def params(self, optz_sched_params: Dict[str, Any],
-               batch_size: Dict[str, int], tokenizer) -> None:
+               batch_size: Dict[str, int]) -> None:
         self.batch_size = batch_size  # needed to turn off lightning warning
         self.optz_sched_params = optz_sched_params
         # Trainer('auto_lr_find': True...) requires self.lr
         self.lr = optz_sched_params['optz_params']['lr'] if (
             'optz_params' in optz_sched_params) and (
                 'lr' in optz_sched_params['optz_params']) else None
-        tokenizer.add_tokens(['<'])
-        self.t5Model.resize_token_embeddings(len(tokenizer))
 
     def forward(self):
         logg.debug('')
@@ -191,9 +190,6 @@ class Model(LightningModule):
         if self.test_results.stat().st_size:
             with self.test_results.open('a') as file:
                 file.write('\n\n****resume from checkpoint****\n')
-        self.temp_file = dirPath.joinpath('temp.txt')
-        self.temp_file.touch()
-        self.temp_file.write_text('')  # empty the file
 
         self.statistics = True
         self.df = pd.read_pickle(dataset_meta['dataset_panda'])
@@ -201,6 +197,7 @@ class Model(LightningModule):
         self.dirPath = dirPath
         self.tokenizer = tokenizer
         self.cntr = Counter()
+        self.max_turn_num = 0
 
     def on_predict_start(self) -> None:
         pass
@@ -208,22 +205,17 @@ class Model(LightningModule):
     def predict_step(self, batch: Dict[str, Any], batch_idx: int) -> Any:
         batch_output = self.t5Model.generate(
             # parameter = None => replace with self.config.parameter
-            #input_ids=batch['model_inputs']['input_ids'],
-            #attention_mask=batch['model_inputs']['attention_mask'],
             max_length=self.tokenizer.max_model_input_sizes['t5-base'],
             min_length=1,
             do_sample=False,
             early_stopping=None,
-            num_beams=6,
-            #num_beams=None,
+            # num_beams=6,
+            num_beams=None,
             temperature=None,
             top_k=None,
             top_p=None,
             repetition_penalty=1.0,
             bad_words_ids=None,
-            #bos_token_id=self.tokenizer.bos_token_id,
-            #pad_token_id=self.tokenizer.pad_token_id,
-            #eos_token_id=self.tokenizer.eos_token_id,
             length_penalty=1.0,
             no_repeat_ngram_size=None,
             num_return_sequences=1,
@@ -240,64 +232,67 @@ class Model(LightningModule):
             logg.critical("UNK detected in batch_output")
             exit()
 
-        if torch.equal(batch['labels'], batch_output[:, 1:]):
-            self.cntr['num_dlgs'] = len(batch['ids'])
-            self.cntr['num_dlgs_pass'] = len(batch['ids'])
-            for id in batch['ids']:
-                self.cntr[f'num_trn{id[1]}_pass'] += 1
-            return
-
-        with self.failed_dlgs_file.open('a') as file:
-            for batch_idx in range(len(batch['ids'])):
-                if not torch.equal(batch['labels'][batch_idx],
-                                   batch_output[batch_idx, 1:]):
-                    # dlg-turn failed
-                    strng = self._create_string_for_file(
-                        batch['model_inputs']['input_ids'][batch_idx],
-                        batch_output[batch_idx, 1:],
-                        batch['labels'][batch_idx], batch['ids'][batch_idx])
+        for batch_idx in range(len(batch['ids'])):
+            self.max_turn_num = max(self.max_turn_num,
+                                    batch["ids"][batch_idx][1])
+            self.cntr['num_turns'] += 1
+            if (label := self.tokenizer.decode(batch['labels'][batch_idx],
+                                               skip_special_tokens=True)
+                ) != (output := self.tokenizer.decode(
+                    batch_output[batch_idx, 1:], skip_special_tokens=True)):
+                # dlg-turn failed
+                self.cntr['num_turns_fail'] += 1
+                self.cntr[f'num_trn{batch["ids"][batch_idx][1]}_fail'] += 1
+                self._create_string_for_file(input=self.tokenizer.decode(
+                    batch['model_inputs']['input_ids'][batch_idx],
+                    skip_special_tokens=True),
+                                             label=label,
+                                             output=output,
+                                             id=batch['ids'][batch_idx])
+            else:
+                self.cntr['num_turns_pass'] += 1
+                self.cntr[f'num_trn{batch["ids"][batch_idx][1]}_pass'] += 1
 
     def _create_string_for_file(self, input: torch.Tensor, label: torch.Tensor,
-                                output: torch.Tensor, id: List[int]) -> str:
+                                output: torch.Tensor, id: List[int]) -> None:
+        wrapper = textwrap.TextWrapper(width=80,
+                                       initial_indent="",
+                                       subsequent_indent=11 * " ")
         pd_dlg_trn = self.df.loc[(self.df['dlg_ids'] == id[0])
                                  & (self.df['turns'] == id[1])]
-        assert self.tokenizer.decode(
-            input,
-            skip_special_tokens=True) == (pd_dlg_trn['in_seq2seq_frames'] +
-                                          " " +
-                                          pd_dlg_trn['sentences']).item()
-        assert self.tokenizer.decode(label, skip_special_tokens=True) == pd_dlg_trn['out_seq2seq_frames'].item()
-        pass
-
-    '''
-    def _create_string_for_file(self, input: torch.Tensor, label: torch.Tensor, output: torch.Tensori, id: List[int]) -> str:
-        pd_dlg_trn = self.df.loc[
-            (self.df['dlg_ids'] == batch['ids'][batch_idx][0])
-            & (self.df['turns'] == batch['ids'][batch_idx][1])]
-                    strng = _create_string_for_file(
-                        in=batch['model_inputs']['input_ids'][batch_idx],
-                        label=batch['label'][batch_idx],
-                        out=batch_output[batch_idx, 1:], id=batch['ids'][batch_idx])
-                    file.write(strng)
-        assert self.tokenizer.decode(input, skip_special_tokens=True) == (pd_dlg_trn['in_seq2seq_frames'] + " " + pd_dlg_trn['sentences']).item()
-    '''
+        dlg_id_str = f'dlg_id:   {id[0]}, {id[1]}'
+        pd_input = (pd_dlg_trn["in_seq2seq_frames"] + " " +
+                    pd_dlg_trn["sentences"]).item()
+        pd_input_str = f'pd input: {pd_input}'
+        md_input_str = f'md input: {input}'
+        pd_label_str = f'pd label: {pd_dlg_trn["out_seq2seq_frames"].item()}'
+        md_label_str = f'md label: {label}'
+        md_predict_str = f'predict:  {output}'
+        with self.failed_dlgs_file.open('a') as file:
+            for strng in (dlg_id_str, pd_input_str, md_input_str, pd_label_str,
+                          md_label_str, md_predict_str):
+                file.write(wrapper.fill(strng))
+                file.write("\n")
+            file.write("\n\n")
 
     def on_predict_end(self) -> None:
-        x = 3
-        """
-        gens = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        inputs = self.tokenizer.batch_decode(batch['model_inputs']['input_ids'],
-                                            skip_special_tokens=True)
-        labels = self.tokenizer.batch_decode(batch['labels'],
-                                            skip_special_tokens=True)
-        gen_count, total_count = 0, 0
-        for input, label, gen in zip(inputs, labels, gens):
-            total_count += 1
-            gen_count += 1 if (gen_bool := (label == gen)) else 0
-            print(f'{input}\n{label}\n{gen} {gen_bool}\n')
-        print(f'gen_count = {gen_count}/{total_count}')
-        print("\n")
-        """
+        from sys import stdout
+        from contextlib import redirect_stdout
+        stdoutput = pathlib.Path('/dev/null')
+        for out in (stdoutput, self.test_results):
+            with out.open("a") as results_file:
+                with redirect_stdout(stdout if out ==
+                                     stdoutput else results_file):
+                    print(f"# of turns = {self.cntr['num_turns']}")
+                    print(f"# of turns passed = {self.cntr['num_turns_pass']}")
+                    print(f"# of turns failed = {self.cntr['num_turns_fail']}")
+                    for turn_num in range(self.max_turn_num + 1):
+                        strng = (f"# of turn {turn_num} that passed = "
+                                 f"{self.cntr[f'num_trn{turn_num}_pass']}")
+                        print(strng)
+                        strng = (f"# of turn {turn_num} that failed = "
+                                 f"{self.cntr[f'num_trn{turn_num}_fail']}")
+                        print(strng)
 
     def _statistics_end(self) -> None:
         pass

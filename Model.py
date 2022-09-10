@@ -104,16 +104,12 @@ class Model(LightningModule):
                  prog_bar=False,
                  batch_size=self.batch_size['test'],
                  logger=True)
-        if self.statistics:
-            self._statistics_step(predictions=torch.argmax(logits, dim=-1),
-                                  batch=batch)
         return ts_loss
 
     def test_epoch_end(
             self, test_step_outputs: List[Union[torch.Tensor,
                                                 Dict[str, Any]]]) -> None:
-        if self.statistics:
-            self._statistics_end()
+        pass
 
     def _run_model(self,
                    batch: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -175,10 +171,7 @@ class Model(LightningModule):
         elif 'optimizer' in locals():
             return optimizer
 
-    def clear_statistics(self) -> None:
-        self.statistics = False
-
-    def set_statistics(self, dataset_meta: Dict[str, Any],
+    def prepare_for_predict(self, dataset_meta: Dict[str, Any],
                        dirPath: pathlib.Path, tokenizer) -> None:
         self.failed_dlgs_file = dirPath.joinpath('dialogs_failed.txt')
         self.failed_dlgs_file.touch()
@@ -191,16 +184,12 @@ class Model(LightningModule):
             with self.test_results.open('a') as file:
                 file.write('\n\n****resume from checkpoint****\n')
 
-        self.statistics = True
         self.df = pd.read_pickle(dataset_meta['dataset_panda'])
-        self.dataset_meta = dataset_meta
-        self.dirPath = dirPath
         self.tokenizer = tokenizer
-        self.cntr = Counter()
-        self.max_turn_num = 0
 
     def on_predict_start(self) -> None:
-        pass
+        self.cntr = Counter()
+        self.max_turn_num = 0
 
     def predict_step(self, batch: Dict[str, Any], batch_idx: int) -> Any:
         batch_output = self.t5Model.generate(
@@ -209,7 +198,7 @@ class Model(LightningModule):
             min_length=1,
             do_sample=False,
             early_stopping=None,
-            # num_beams=6,
+            #num_beams=6,
             num_beams=None,
             temperature=None,
             top_k=None,
@@ -293,6 +282,3 @@ class Model(LightningModule):
                         strng = (f"# of turn {turn_num} that failed = "
                                  f"{self.cntr[f'num_trn{turn_num}_fail']}")
                         print(strng)
-
-    def _statistics_end(self) -> None:
-        pass

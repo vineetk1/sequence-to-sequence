@@ -85,7 +85,7 @@ def main():
                 user_dicts[user_dict_k] = chkpt_dicts[user_dict_k]
     else:
         tb_subDir = ",".join([
-            f'{item}={user_dicts["model_init"][item]}'
+            f'{item}={(user_dicts["model_init"][item]).replace("/", "_")}'
             for item in ['model', 'model_type', 'tokenizer_type']
             if item in user_dicts['model_init']
         ])
@@ -98,7 +98,7 @@ def main():
     tokenizer = T5Tokenizer.from_pretrained(
         user_dicts['model_init']['tokenizer_type'])
     tokenizer.add_tokens(['<'])
-    data = Data(tokenizer,
+    data = Data(tokenizer=tokenizer,
                 batch_size=user_dicts['data']['batch_size']
                 if 'batch_size' in user_dicts['data'] else {})
     data.generate_data_labels(dataset_path=user_dicts['data']['dataset_path'])
@@ -114,11 +114,12 @@ def main():
         model = Model.load_from_checkpoint(
             checkpoint_path=user_dicts['ld_resume_chkpt']['ld_chkpt'])
     else:
-        model = Model(user_dicts['model_init'], tokenizer)
+        model = Model(model_init=user_dicts['model_init'], tokenizer=tokenizer)
     # batch_size is only provided to turn-off Lightning Warning;
     # resume_from_checkpoint can provide a different batch_size which will
     # conflict with this batch_size
-    model.params(user_dicts['optz_sched'], dataset_metadata['batch size'])
+    model.params(optz_sched_params=user_dicts['optz_sched'],
+                 batch_size=dataset_metadata['batch size'])
 
     # create a directory to store all types of results
     if 'resume_from_checkpoint' in user_dicts['ld_resume_chkpt']:
@@ -203,7 +204,7 @@ def main():
             trainer.predict(dataloaders=data.predict_dataloader(),
                             ckpt_path='best')
         else:
-            trainer.predict(model, dataloaders=data.predict_dataloader())
+            trainer.predict(model=model, dataloaders=data.predict_dataloader())
     logg.info(f"Results and other information is at the directory: {dirPath}")
 
 

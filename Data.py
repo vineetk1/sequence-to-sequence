@@ -30,7 +30,7 @@ class Data(LightningDataModule):
         self.batch_size = batch_size['train']
 
     def generate_data_labels(self, dataset_path: str) -> None:
-        generate_dataset(dataset_path)
+        generate_dataset(dataset_path=dataset_path)
 
     def split_dataset(self, dataset_path: str, dataset_split: Dict[str, int],
                       train: bool, predict: bool) -> Dict[str, Any]:

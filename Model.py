@@ -86,9 +86,8 @@ class Model(LightningModule):
             logger=False)
         return v_loss
 
-    def validation_epoch_end(
-            self, val_step_outputs: List[Union[torch.Tensor,
-                                               Dict[str, Any]]]) -> None:
+    def validation_epoch_end(self,
+                             val_step_outputs: List[torch.Tensor]) -> None:
         v_avg_loss = torch.stack(val_step_outputs).mean()
         # on TensorBoard, want to see x-axis in epochs (not steps=batches)
         self.logger.experiment.add_scalar('val_loss_epoch', v_avg_loss,
@@ -101,14 +100,12 @@ class Model(LightningModule):
                  ts_loss,
                  on_step=False,
                  on_epoch=True,
-                 prog_bar=False,
+                 prog_bar=True,
                  batch_size=self.batch_size['test'],
                  logger=True)
         return ts_loss
 
-    def test_epoch_end(
-            self, test_step_outputs: List[Union[torch.Tensor,
-                                                Dict[str, Any]]]) -> None:
+    def test_epoch_end(self, test_step_outputs: List[torch.Tensor]) -> None:
         pass
 
     def _run_model(self,
@@ -172,7 +169,7 @@ class Model(LightningModule):
             return optimizer
 
     def prepare_for_predict(self, dataset_meta: Dict[str, Any],
-                       dirPath: pathlib.Path, tokenizer) -> None:
+                            dirPath: pathlib.Path, tokenizer) -> None:
         self.failed_dlgs_file = dirPath.joinpath('dialogs_failed.txt')
         self.failed_dlgs_file.touch()
         if self.failed_dlgs_file.stat().st_size:
@@ -198,8 +195,8 @@ class Model(LightningModule):
             min_length=1,
             do_sample=False,
             early_stopping=None,
-            #num_beams=6,
-            num_beams=None,
+            num_beams=6,
+            #num_beams=None,
             temperature=None,
             top_k=None,
             top_p=None,
@@ -225,25 +222,29 @@ class Model(LightningModule):
             self.max_turn_num = max(self.max_turn_num,
                                     batch["ids"][batch_idx][1])
             self.cntr['num_turns'] += 1
-            if (label := self.tokenizer.decode(batch['labels'][batch_idx],
-                                               skip_special_tokens=True)
-                ) != (output := self.tokenizer.decode(
-                    batch_output[batch_idx, 1:], skip_special_tokens=True)):
+            # (label != output) is True even when there are extra spaces in
+            # either label or output; but self._diff(label, output) ignores
+            # extra spaces
+            if ((label := self.tokenizer.decode(batch['labels'][batch_idx],
+                                                skip_special_tokens=True)) !=
+                (output := self.tokenizer.decode(
+                    batch_output[batch_idx, 1:],
+                    skip_special_tokens=True))) and self._diff(label, output):
                 # dlg-turn failed
                 self.cntr['num_turns_fail'] += 1
                 self.cntr[f'num_trn{batch["ids"][batch_idx][1]}_fail'] += 1
-                self._create_string_for_file(input=self.tokenizer.decode(
+                self._failed_dlg_to_file(input=self.tokenizer.decode(
                     batch['model_inputs']['input_ids'][batch_idx],
                     skip_special_tokens=True),
-                                             label=label,
-                                             output=output,
-                                             id=batch['ids'][batch_idx])
+                                         label=label,
+                                         output=output,
+                                         id=batch['ids'][batch_idx])
             else:
                 self.cntr['num_turns_pass'] += 1
                 self.cntr[f'num_trn{batch["ids"][batch_idx][1]}_pass'] += 1
 
-    def _create_string_for_file(self, input: torch.Tensor, label: torch.Tensor,
-                                output: torch.Tensor, id: List[int]) -> None:
+    def _failed_dlg_to_file(self, input: torch.Tensor, label: torch.Tensor,
+                            output: torch.Tensor, id: List[int]) -> None:
         wrapper = textwrap.TextWrapper(width=80,
                                        initial_indent="",
                                        subsequent_indent=11 * " ")
@@ -254,15 +255,57 @@ class Model(LightningModule):
                     pd_dlg_trn["sentences"]).item()
         pd_input_str = f'pd input: {pd_input}'
         md_input_str = f'md input: {input}'
-        pd_label_str = f'pd label: {pd_dlg_trn["out_seq2seq_frames"].item()}'
+        diff_input = self._diff(pd_input, input)
+        diff_input_str = f'diff input: {diff_input}'
+        pd_label = pd_dlg_trn["out_seq2seq_frames"].item()
+        pd_label_str = f'pd label: {pd_label}'
         md_label_str = f'md label: {label}'
-        md_predict_str = f'predict:  {output}'
+        diff_label = self._diff(pd_label, label)
+        diff_label_str = f'diff label: {diff_label}'
+        predict_str = f'predict:  {output}'
+        diff_mdLabel_output = self._diff(label, output)
+        diff_mdLabel_output_str = f'diff md_label predict: {diff_mdLabel_output}'
         with self.failed_dlgs_file.open('a') as file:
-            for strng in (dlg_id_str, pd_input_str, md_input_str, pd_label_str,
-                          md_label_str, md_predict_str):
+            for strng in (dlg_id_str, pd_input_str, md_input_str,
+                          diff_input_str, pd_label_str, md_label_str,
+                          diff_label_str, predict_str,
+                          diff_mdLabel_output_str):
                 file.write(wrapper.fill(strng))
                 file.write("\n")
             file.write("\n\n")
+
+    def _diff(self, str1: str, str2: str) -> str:
+        chars_to_replace = {'[': ' ', ']': ' ', ',': ' '}
+        str1 = str1.translate(str.maketrans(chars_to_replace)).split()
+        str2 = str2.translate(str.maketrans(chars_to_replace)).split()
+        strng = ""
+        if str1 != str2:
+            for elem1, elem2 in zip(str1, str2):
+                if elem1 != elem2:
+                    cnt1, cnt2 = self._get_counts(elem1, elem2)
+                    strng += f'({elem1}({cnt1}), {elem2}({cnt2})) '
+        return strng
+
+    def _get_counts(self, elem1: str, elem2: str) -> Tuple[int, int]:
+        cnt1, cnt2 = 0, 0
+        try:
+            elem1 = str(int(float(elem1)))
+            elem2 = str(int(float(elem2)))
+            # string is a number
+            for sentence in self.df['out_seq2seq_frames']:
+                if elem1 in sentence:
+                    # multiple occurrences of elem1 are counted as 1 occurrence
+                    cnt1 += 1
+                if elem2 in sentence:
+                    cnt2 += 1
+        except ValueError:
+            # string is not a number
+            for out_frame in self.df['out_seq2seq_frames']:
+                if elem1 in out_frame:
+                    cnt1 += 1
+                if elem2 in out_frame:
+                    cnt2 += 1
+        return cnt1, cnt2
 
     def on_predict_end(self) -> None:
         from sys import stdout
@@ -273,12 +316,31 @@ class Model(LightningModule):
                 with redirect_stdout(stdout if out ==
                                      stdoutput else results_file):
                     print(f"# of turns = {self.cntr['num_turns']}")
-                    print(f"# of turns passed = {self.cntr['num_turns_pass']}")
-                    print(f"# of turns failed = {self.cntr['num_turns_fail']}")
+                    strng = (
+                        f"(#, %) of turns passed = "
+                        f"{self.cntr['num_turns_pass']}, "
+                        f"{((self.cntr['num_turns_pass'] * 100) / self.cntr['num_turns']): .2f}"
+                    )
+                    print(strng)
+                    strng = (
+                        f"(#, %) of turns failed = "
+                        f"{self.cntr['num_turns_fail']}, "
+                        f"{((self.cntr['num_turns_fail'] * 100) / self.cntr['num_turns']): .2f}"
+                    )
+                    print(strng)
                     for turn_num in range(self.max_turn_num + 1):
-                        strng = (f"# of turn {turn_num} that passed = "
-                                 f"{self.cntr[f'num_trn{turn_num}_pass']}")
+                        num_turns_pass = self.cntr[f'num_trn{turn_num}_pass']
+                        num_turns_fail = self.cntr[f'num_trn{turn_num}_fail']
+                        num_turns_total = num_turns_pass + num_turns_fail
+                        strng = (
+                            f"(#, %) of turn {turn_num} that passed = "
+                            f"{num_turns_pass}, "
+                            f"{((num_turns_pass * 100) / num_turns_total): .2f}"
+                        )
                         print(strng)
-                        strng = (f"# of turn {turn_num} that failed = "
-                                 f"{self.cntr[f'num_trn{turn_num}_fail']}")
+                        strng = (
+                            f"(#, %) of turn {turn_num} that failed = "
+                            f"{num_turns_fail}, "
+                            f"{((num_turns_fail * 100) / num_turns_total): .2f}"
+                        )
                         print(strng)
